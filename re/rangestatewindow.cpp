@@ -1,4 +1,5 @@
 #include "rangestatewindow.h"
+#include "linformat.h"
 #include "ui_rangestatewindow.h"
 #include "mainwindow.h"
 #include "utility.h"
@@ -159,10 +160,11 @@ void RangeStateWindow::updatedFrames(int numFrames)
         for (int i = modelFrames->count() - numFrames; i < modelFrames->count(); i++)
         {
             thisFrame = modelFrames->at(i);
-            if (!idFilters.contains(thisFrame.frameId()))
+            if (thisFrame.isLinHeaderOnly()) continue; //no data
+            if (!idFilters.contains(LinFormat::idKey(thisFrame)))
             {
-                idFilters.insert(thisFrame.frameId(), true);
-                FilterUtility::createCheckableFilterItem(thisFrame.frameId(), true, ui->listFilter);
+                idFilters.insert(LinFormat::idKey(thisFrame), true);
+                FilterUtility::createCheckableFilterItem(LinFormat::idKey(thisFrame), true, ui->listFilter);
             }
         }
     }
@@ -177,7 +179,8 @@ void RangeStateWindow::refreshFilterList()
 
     for (int i = 0; i < modelFrames->length(); i++)
     {
-        id = modelFrames->at(i).frameId();
+        if (modelFrames->at(i).isLinHeaderOnly()) continue; //no data
+        id = LinFormat::idKey(modelFrames->at(i)); //LIN frames apart from CAN frames of the same ID
         if (!idFilters.contains(id))
         {
             idFilters.insert(id, true);
@@ -218,7 +221,8 @@ void RangeStateWindow::recalcButton()
             id = iter.key();
             for (int j = 0; j < modelFrames->count(); j++)
             {
-                if (modelFrames->at(j).frameId() == id) frameCache.append(modelFrames->at(j));
+                if (LinFormat::idKey(modelFrames->at(j)) == id && !modelFrames->at(j).isLinHeaderOnly())
+                    frameCache.append(modelFrames->at(j));
             }
             //now we've got a list with all the same ID. Time to send it off for processing
             signalsFactory();
@@ -360,7 +364,8 @@ bool RangeStateWindow::processSignal(int startBit, int bitLength, int sensitivit
     {
         //createGraph(scaledVals);
         QString temp;
-        temp = "ID: " + QString::number(frameCache.at(0).frameId(), 16) + " startBit: " + QString::number(startBit) + "  len: " + QString::number(bitLength);
+        temp = "ID: " + (frameCache.at(0).isLin() ? LinFormat::linKeyText(LinFormat::idKey(frameCache.at(0)))
+                                                  : QString::number(frameCache.at(0).frameId(), 16)) + " startBit: " + QString::number(startBit) + "  len: " + QString::number(bitLength);
         int64_t foundSig;
         foundSig = frameCache.at(0).frameId();
         foundSig += (int64_t)startBit << 32;
@@ -469,7 +474,8 @@ void RangeStateWindow::clickedSignalList(int idx)
 
     for (int j = 0; j < modelFrames->count(); j++)
     {
-        if (modelFrames->at(j).frameId() == id) frameCache.append(modelFrames->at(j));
+        if (LinFormat::idKey(modelFrames->at(j)) == id && !modelFrames->at(j).isLinHeaderOnly())
+            frameCache.append(modelFrames->at(j));
     }
 
     int numFrames = frameCache.count();

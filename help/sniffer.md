@@ -67,3 +67,5 @@ View Bits
 ==========
 
 This option changes the view very starkly. This is the view shown in the picture associated with this topic. When View Bits is selected the display will change to show each bit within the bytes as separate blocks that each can separately be black when set and unchanged, white when unset and unchanged, red when freshly unset, and green when freshly set. This allows for a very fine grained view. Fade inactive, and never expire still work as usual. This mode might be a bit "busy" and lowers the number of IDs you can see at once. But, the choice is yours. You give up some density in exchange for verbosity.
+
+LIN frames have rows of their own, shown as L0x.. (LIN IDs 0x00-0x3F overlap CAN IDs). LIN headers nobody answered carry no data and are left out.

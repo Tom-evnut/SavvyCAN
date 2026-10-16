@@ -43,3 +43,5 @@ Pulling the Trigger
 ===================
 
 Once you've configured everything click "Start Fuzzing" to give it a shot. You will see the number of frames sent so far listed below the button. Approximately four times per second the current value for each byte is copied into the text boxes just above the 8x8 grid. This can be used to see what is going on and to ensure that it is working the way you want it to. You can stop the fuzzing by pushing the start button again.
+
+LIN: IDs from LIN frames are listed as L0x... Fuzzing one sends LIN frames (header and up to 8 data bytes) as the LIN master, so the bus's LIN connection must be in master mode; the checksum follows the bus's setting. IDs given as a range are always sent as CAN frames.

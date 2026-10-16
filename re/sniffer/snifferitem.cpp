@@ -1,10 +1,11 @@
 #include <QVariant>
 #include <QDebug>
 #include "snifferitem.h"
+#include "linformat.h"
 
 
 SnifferItem::SnifferItem(const CommFrame& pFrame, quint32 seq):
-    mID(pFrame.frameId())
+    mID(LinFormat::idKey(pFrame)) //LIN frames apart from CAN frames of the same ID
 {
     const unsigned char *data = reinterpret_cast<const unsigned char *>(pFrame.payload().constData());
     int dataLen = pFrame.payload().length();

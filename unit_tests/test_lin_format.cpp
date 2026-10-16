@@ -26,6 +26,7 @@ private slots:
     void testPcapLinPacket();
     void testPcapngFile();
     void testClassicPcap();
+    void testToolKeys();
 };
 
 static CommFrame linFrame(quint8 id, const QByteArray &data)
@@ -605,6 +606,32 @@ void TestLinFormat::testClassicPcap()
     QVERIFY(FrameFileIO::loadWiresharkSocketCANFile(big, &frames));
     QCOMPARE(frames.size(), 2);
     QCOMPARE(frames.at(1).payload(), QByteArray::fromHex("77"));
+}
+
+// RE tools' entries: LIN frames apart from CAN frames of the same ID
+void TestLinFormat::testToolKeys()
+{
+    const CommFrame can(0x02, QByteArray::fromHex("01"));
+    const CommFrame lin = linFrame(0x02, QByteArray::fromHex("01"));
+    CommFrame ext(0x18DAF110, QByteArray::fromHex("01"));
+    ext.setExtendedFrameFormat(true);
+    QCOMPARE(LinFormat::idKey(can), quint32(0x02));
+    QCOMPARE(LinFormat::idKey(lin), quint32(0x40000002));
+    QCOMPARE(LinFormat::idKey(ext), quint32(0x18DAF110)); // 29-bit CAN IDs never reach bit 30
+    QVERIFY(LinFormat::keyIsLin(LinFormat::idKey(lin)));
+    QVERIFY(!LinFormat::keyIsLin(LinFormat::idKey(ext)));
+    QCOMPARE(LinFormat::keyId(LinFormat::idKey(lin)), quint32(0x02));
+    QCOMPARE(LinFormat::linKeyText(LinFormat::idKey(lin)), QString("L0x02"));
+    QCOMPARE(LinFormat::linKeyText(LinFormat::LIN_KEY | 0x3D), QString("L0x3D"));
+
+    quint32 key = 0;
+    QVERIFY(LinFormat::keyFromText("L0x3D Motor_Status", key)); // with a label after it
+    QCOMPARE(key, quint32(0x4000003D));
+    QVERIFY(LinFormat::keyFromText("0x123 CanMsg", key));
+    QCOMPARE(key, quint32(0x123));
+    QVERIFY(LinFormat::keyFromText("291", key));
+    QCOMPARE(key, quint32(291));
+    QVERIFY(!LinFormat::keyFromText("Lxyz", key));
 }
 
 QTEST_MAIN(TestLinFormat)

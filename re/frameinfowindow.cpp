@@ -356,14 +356,14 @@ void FrameInfoWindow::updatedFrames(int numFrames)
         for (int x = modelFrames->count() - numFrames; x < modelFrames->count(); x++)
         {
             CommFrame thisFrame = modelFrames->at(x);
-            int32_t id = static_cast<int32_t>(thisFrame.frameId());
+            int32_t id = static_cast<int32_t>(LinFormat::idKey(thisFrame)); //LIN frames apart from CAN frames
             if (!foundID.contains(id))
             {
                 foundID.append(id);
                 FilterUtility::createFilterItem(id, ui->listFrameID);
             }
 
-            if (currID == modelFrames->at(x).frameId())
+            if (currID == LinFormat::idKey(modelFrames->at(x)))
             {
                 thisID = true;
                 break;
@@ -414,7 +414,8 @@ void FrameInfoWindow::updateDetailsWindow(QString newID)
 
     if (modelFrames->count() == 0) return;
 
-    targettedID = static_cast<int>(Utility::ParseStringToNum(newID));
+    quint32 key = 0;
+    targettedID = LinFormat::keyFromText(newID, key) ? static_cast<int>(key) : static_cast<int>(Utility::ParseStringToNum(newID));
 
     qDebug() << "Started update details window with id " << targettedID;
 
@@ -427,7 +428,7 @@ void FrameInfoWindow::updateDetailsWindow(QString newID)
         for (int i = 0; i < modelFrames->count(); i++)
         {
             CommFrame thisFrame = modelFrames->at(i);
-            if (thisFrame.frameId() == static_cast<uint32_t>(targettedID)) frameCache.append(thisFrame);
+            if (LinFormat::idKey(thisFrame) == static_cast<uint32_t>(targettedID)) frameCache.append(thisFrame);
         }
 
         if (frameCache.count() == 0) return; //nothing to do if there are no frames!
@@ -574,8 +575,9 @@ void FrameInfoWindow::updateDetailsWindow(QString newID)
         int64_t intervalSum = 0;
 
         //frames of this ID can be CAN and LIN (LIN IDs are 0-63): each is decoded with the message for its kind
-        DBC_MESSAGE *canMsg = dbcHandler->findMessageForFilter(targettedID, nullptr, false);
-        DBC_MESSAGE *linMsg = dbcHandler->findMessageForFilter(targettedID, nullptr, true);
+        const bool linKey = LinFormat::keyIsLin(quint32(targettedID));
+        DBC_MESSAGE *canMsg = linKey ? nullptr : dbcHandler->findMessageForFilter(targettedID, nullptr, false);
+        DBC_MESSAGE *linMsg = linKey ? dbcHandler->findMessageForFilter(LinFormat::keyId(quint32(targettedID)), nullptr, true) : nullptr;
 
         //then find all data points
         for (int j = 0; j < frameCache.count(); j++)
@@ -880,7 +882,7 @@ void FrameInfoWindow::refreshIDList()
     for (int i = 0; i < modelFrames->count(); i++)
     {
         CommFrame thisFrame = modelFrames->at(i);
-        id = (int)thisFrame.frameId();
+        id = (int)LinFormat::idKey(thisFrame); //LIN frames apart from CAN frames of the same ID
         if (!foundID.contains(id))
         {
             foundID.append(id);
