@@ -1,10 +1,13 @@
 #include "utility.h"
 #include "filterutility.h"
 #include "dbc/dbchandler.h"
+#include "linformat.h"
 #include <QSettings>
 
 uint32_t FilterUtility::getIdAsInt( QListWidgetItem * item )
 {
+    quint32 key = 0;
+    if (getId(item).startsWith("L0x", Qt::CaseInsensitive) && LinFormat::keyFromText(getId(item), key)) return key; //a LIN entry
     return Utility::ParseStringToNum(getId(item));
 }
 
@@ -65,6 +68,20 @@ QListWidgetItem * FilterUtility::createFilterItem(uint32_t id, QListWidget* pare
     QSettings settings;
     DBCHandler * dbcHandler = DBCHandler::getReference();
     QListWidgetItem *thisItem = new QListWidgetItem(parent);
+    if (LinFormat::keyIsLin(id)) //a LIN entry of an RE tool (see LinFormat::idKey()), labelled from the LIN files
+    {
+        QString name = LinFormat::linKeyText(id);
+        DBC_MESSAGE *msg = nullptr;
+        if (settings.value("Main/FilterLabeling", false).toBool())
+            msg = dbcHandler->findMessageForFilter(LinFormat::keyId(id), nullptr, true);
+        if (msg)
+        {
+            name += " " + msg->name;
+            thisItem->setToolTip(msg->name);
+        }
+        thisItem->setText(name);
+        return thisItem;
+    }
     QString filterItemName = Utility::formatCANID(id);
 
     //Note, there are multiple filter labeling preferences. There is one in main settings to globally

@@ -1,7 +1,22 @@
 #include "discretestatewindow.h"
+#include "linformat.h"
 #include "ui_discretestatewindow.h"
 #include "mainwindow.h"
 #include "helpwindow.h"
+
+//LIN frames have entries apart from CAN frames of the same ID (see LinFormat::idKey())
+static int itemKey(const QListWidgetItem *item)
+{
+    quint32 key = 0;
+    if (item->text().startsWith("L0x", Qt::CaseInsensitive) && LinFormat::keyFromText(item->text(), key)) return int(key);
+    return Utility::ParseStringToNum(item->text());
+}
+
+static QString keyText(const CommFrame &frame)
+{
+    return frame.isLin() ? LinFormat::linKeyText(LinFormat::idKey(frame))
+                         : Utility::formatCANID(frame.frameId(), frame.hasExtendedFrameFormat());
+}
 
 DiscreteStateWindow::DiscreteStateWindow(const QVector<CommFrame> *frames, QWidget *parent) :
     QDialog(parent),
@@ -32,7 +47,7 @@ DiscreteStateWindow::DiscreteStateWindow(const QVector<CommFrame> *frames, QWidg
                 {
                     QListWidgetItem *item = ui->listID->item(i);
                     item->setCheckState(Qt::Checked);
-                    idFilters[Utility::ParseStringToNum(item->text())] = true;
+                    idFilters[itemKey(item)] = true;
                 }
             });
 
@@ -43,7 +58,7 @@ DiscreteStateWindow::DiscreteStateWindow(const QVector<CommFrame> *frames, QWidg
                 {
                     QListWidgetItem *item = ui->listID->item(i);
                     item->setCheckState(Qt::Unchecked);
-                    idFilters[Utility::ParseStringToNum(item->text())] = false;
+                    idFilters[itemKey(item)] = false;
                 }
             });
 
@@ -51,7 +66,7 @@ DiscreteStateWindow::DiscreteStateWindow(const QVector<CommFrame> *frames, QWidg
             [=](QListWidgetItem *item)
             {
                 bool isChecked = false;
-                int id = Utility::ParseStringToNum(item->text());
+                int id = itemKey(item);
                 if (item->checkState() == Qt::Checked) isChecked = true;
                 idFilters[id] = isChecked;
             });
@@ -140,10 +155,11 @@ void DiscreteStateWindow::updatedFrames(int numFrames)
         {
             thisFrame = modelFrames->at(i);
 
-            if (!idFilters.contains(thisFrame.frameId()))
+            if (thisFrame.isLinHeaderOnly()) continue; //no data
+            if (!idFilters.contains(LinFormat::idKey(thisFrame)))
             {
-                idFilters.insert(thisFrame.frameId(), true);
-                QListWidgetItem* listItem = new QListWidgetItem(Utility::formatCANID(thisFrame.frameId(), thisFrame.hasExtendedFrameFormat()), ui->listID);
+                idFilters.insert(LinFormat::idKey(thisFrame), true);
+                QListWidgetItem* listItem = new QListWidgetItem(keyText(thisFrame), ui->listID);
                 listItem->setFlags(listItem->flags() | Qt::ItemIsUserCheckable); // set checkable flag
                 listItem->setCheckState(Qt::Checked); //default all filters to be set active
             }
@@ -164,11 +180,12 @@ void DiscreteStateWindow::refreshFilterList()
     for (int i = 0; i < modelFrames->length(); i++)
     {
         CommFrame thisFrame = modelFrames->at(i);
-        id = thisFrame.frameId();
+        if (thisFrame.isLinHeaderOnly()) continue; //no data
+        id = LinFormat::idKey(thisFrame);
         if (!idFilters.contains(id))
         {
             idFilters.insert(id, true);
-            QListWidgetItem* listItem = new QListWidgetItem(Utility::formatCANID(id, thisFrame.hasExtendedFrameFormat()), ui->listID);
+            QListWidgetItem* listItem = new QListWidgetItem(keyText(thisFrame), ui->listID);
             listItem->setFlags(listItem->flags() | Qt::ItemIsUserCheckable); // set checkable flag
             listItem->setCheckState(Qt::Checked); //default all filters to be set active
         }
@@ -359,7 +376,8 @@ void DiscreteStateWindow::calculateResults()
                 frameCache.clear();
                 for (int i = 0; i < modelFrames->count(); i++)
                 {
-                    if (modelFrames->at(i).frameId() == (unsigned int)it.key()) frameCache.append(modelFrames->at(i));
+                    if (LinFormat::idKey(modelFrames->at(i)) == (unsigned int)it.key() && !modelFrames->at(i).isLinHeaderOnly())
+                        frameCache.append(modelFrames->at(i));
                 }
                 for (int bits = maxBits; bits >= minBits; bits--)
                 {

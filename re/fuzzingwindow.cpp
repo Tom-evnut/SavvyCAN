@@ -1,4 +1,5 @@
 #include "fuzzingwindow.h"
+#include "linformat.h"
 #include "ui_fuzzingwindow.h"
 #include "utility.h"
 #include <QDebug>
@@ -107,7 +108,7 @@ void FuzzingWindow::updatedFrames(int numFrames)
         if (numFrames > modelFrames->count()) return;
         for (int i = modelFrames->count() - numFrames; i < modelFrames->count(); i++)
         {
-            id = modelFrames->at(i).frameId();
+            id = LinFormat::idKey(modelFrames->at(i)); //LIN frames apart from CAN frames of the same ID
             if (!foundIDs.contains(id))
             {
                 foundIDs.append(id);
@@ -188,11 +189,14 @@ void FuzzingWindow::timerTriggered()
     int buses = ui->cbBuses->currentIndex();
     for (int count = 0; count < ui->spinBurst->value(); count++)
     {
-        thisFrame.setFrameId(currentID);
-        QByteArray bytes(ui->spinBytes->value(), 0);
+        const bool lin = LinFormat::keyIsLin(quint32(currentID)); //an L0x.. entry: LIN frames, sent as master
+        thisFrame.clearLinInfo();
+        thisFrame.setFrameType(lin ? CommFrame::LINDataFrame : CommFrame::CANDataFrame);
+        thisFrame.setFrameId(lin ? LinFormat::keyId(quint32(currentID)) : currentID);
+        QByteArray bytes(lin ? qMin(ui->spinBytes->value(), int(CommFrame::LIN_MAX_PAYLOAD)) : ui->spinBytes->value(), 0);
         for (int i = 0; i < bytes.length(); i++) bytes[i] = currentBytes[i];
         thisFrame.setPayload(bytes);
-        if (currentID > 0x7FF) thisFrame.setExtendedFrameFormat(true);
+        if (!lin && currentID > 0x7FF) thisFrame.setExtendedFrameFormat(true);
         else thisFrame.setExtendedFrameFormat(false);
         thisFrame.setBus(0); //hard coded for now. TODO: do not hard code
 
@@ -422,7 +426,7 @@ void FuzzingWindow::refreshIDList()
     for (int i = 0; i < modelFrames->count(); i++)
     {
         CommFrame thisFrame = modelFrames->at(i);
-        id = thisFrame.frameId();
+        id = LinFormat::idKey(thisFrame);
         if (!foundIDs.contains(id))
         {
             foundIDs.append(id);

@@ -289,6 +289,30 @@ inline bool fromPcapLin(const unsigned char *packet, int length, CommFrame &fram
     return true;
 }
 
+/*
+ * RE tools that keep one entry per frame ID (the sniffer, Frame Data Analysis, Range State, Single/Multi State,
+ * fuzzing) give LIN frames entries of their own, as LIN IDs (0-63) overlap CAN IDs: a LIN frame's key is its ID with
+ * bit 30 set (CAN IDs are 29 bits at most), shown as "L0x02" in ID lists.
+ */
+constexpr quint32 LIN_KEY = 0x40000000;
+inline quint32 idKey(const CommFrame &frame) { return frame.isLin() ? (LIN_KEY | (frame.frameId() & 0x3F)) : frame.frameId(); }
+inline bool keyIsLin(quint32 key) { return key & LIN_KEY; }
+inline quint32 keyId(quint32 key) { return key & ~LIN_KEY; }
+inline QString linKeyText(quint32 key) { return "L0x" + QString("%1").arg(keyId(key), 2, 16, QChar('0')).toUpper(); }
+//the key in an ID list item's text ("L0x02 ..." or a CAN ID); false if there's none
+inline bool keyFromText(const QString &text, quint32 &key)
+{
+    const QString id = text.trimmed().section(' ', 0, 0);
+    bool ok = false;
+    if (id.startsWith("L0x", Qt::CaseInsensitive))
+    {
+        key = LIN_KEY | (id.mid(3).toUInt(&ok, 16) & 0x3F);
+        return ok;
+    }
+    key = id.startsWith("0x", Qt::CaseInsensitive) ? id.mid(2).toUInt(&ok, 16) : id.toUInt(&ok, 10);
+    return ok;
+}
+
 //the LIN lines of the Frame Info window for the frames of one ID (frames that aren't LIN are ignored); empty if
 //there are no LIN frames
 inline QStringList summary(const QVector<CommFrame> &frames)

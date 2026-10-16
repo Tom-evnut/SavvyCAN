@@ -2,6 +2,7 @@
 #include <Qt>
 #include <QApplication>
 #include "sniffermodel.h"
+#include "linformat.h"
 #include "snifferwindow.h"
 #include "SnifferDelegate.h"
 
@@ -69,6 +70,7 @@ QVariant SnifferModel::data(const QModelIndex &index, int role) const
                     if (item->getDelta() == 0) return QString("0 hz");
                     return QString("%1 hz").arg(qRound(1.00 / item->getDelta()));
                 case tc::ID:
+                    if (LinFormat::keyIsLin(quint32(item->getId()))) return LinFormat::linKeyText(quint32(item->getId()));
                     return "0x" + QString("%1").arg(item->getId(), 5, 16, QLatin1Char('0')).toUpper();
                 default:
                     break;
@@ -318,20 +320,22 @@ void SnifferModel::update(CANConnection*, QVector<CommFrame>& pFrames)
 {
     foreach(const CommFrame& frame, pFrames)
     {
-        if(!mMap.contains(frame.frameId()))
+        if (frame.isLinHeaderOnly()) continue; //a LIN header nobody answered: no data to sniff
+        const quint32 key = LinFormat::idKey(frame); //LIN frames apart from CAN frames of the same ID
+        if(!mMap.contains(key))
         {
-            int index = std::distance(mMap.begin(), mMap.lowerBound(frame.frameId()));
+            int index = std::distance(mMap.begin(), mMap.lowerBound(key));
             /* add the frame */
             beginInsertRows(QModelIndex(), index, index);
-            mMap[frame.frameId()] = new SnifferItem(frame, mTimeSequence);
-            mMap[frame.frameId()]->update(frame, mTimeSequence, mMuteNotched);
+            mMap[key] = new SnifferItem(frame, mTimeSequence);
+            mMap[key]->update(frame, mTimeSequence, mMuteNotched);
             endInsertRows();
 
-            emit idChange(frame.frameId(), true);
+            emit idChange(key, true);
         }
         else
             //updateData
-            mMap[frame.frameId()]->update(frame, mTimeSequence, mMuteNotched);
+            mMap[key]->update(frame, mTimeSequence, mMuteNotched);
     }
 }
 

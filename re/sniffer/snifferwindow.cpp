@@ -2,6 +2,7 @@
 #include <QListWidgetItem>
 #include <qevent.h>
 #include "snifferwindow.h"
+#include "linformat.h"
 #include "ui_snifferwindow.h"
 #include "helpwindow.h"
 #include "connections/canconmanager.h"
@@ -244,7 +245,8 @@ void SnifferWindow::idChange(int pId, bool pAdd)
 
     if(pAdd)
     {
-        QString text = QString("0x") + QString("%1").arg(pId, 3, 16, QLatin1Char('0')).toUpper();
+        QString text = LinFormat::keyIsLin(quint32(pId)) ? LinFormat::linKeyText(quint32(pId))
+                                                         : QString("0x") + QString("%1").arg(pId, 3, 16, QLatin1Char('0')).toUpper();
         item = new QListWidgetItem(text);
         item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
         //item->setCheckState(mFilter ? Qt::Unchecked : Qt::Checked);
