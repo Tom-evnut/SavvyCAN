@@ -463,6 +463,7 @@
     <addaction name="actionGraph_Dta"/>
     <addaction name="actionFrame_Data_Analysis"/>
     <addaction name="actionLIN_Schedule_Analysis"/>
+    <addaction name="actionLIN_Diagnostics"/>
     <addaction name="actionFile_Comparison"/>
     <addaction name="actionDBC_Comparison"/>
     <addaction name="actionRange_State_2"/>
@@ -575,6 +576,11 @@
   <action name="actionLIN_Schedule_Analysis">
    <property name="text">
     <string>LIN Schedule Analysis</string>
+   </property>
+  </action>
+  <action name="actionLIN_Diagnostics">
+   <property name="text">
+    <string>LIN Diagnostics</string>
    </property>
   </action>
   <action name="actionLoad_DBC_File">

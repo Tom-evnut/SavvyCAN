@@ -222,6 +222,20 @@ target_link_libraries(TestLinScheduleAnalysis
     Qt6::SerialBus
 )
 
+###### LIN diagnostic transport layer test ######
+add_executable(TestLinTp
+    test_lintp.cpp
+    ../bus_protocols/lintp.cpp  # the code under test
+)
+
+target_include_directories(TestLinTp PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestLinTp
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 add_test(NAME TestIsoTpHandler COMMAND TestIsoTpHandler)
 add_test(NAME TestUdsHandler COMMAND TestUdsHandler)
 add_test(NAME TestLinFrame COMMAND TestLinFrame)
@@ -230,6 +244,7 @@ add_test(NAME TestCanBus COMMAND TestCanBus)
 add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
 add_test(NAME TestLinFormat COMMAND TestLinFormat)
 add_test(NAME TestLdf COMMAND TestLdf)
+add_test(NAME TestLinTp COMMAND TestLinTp)
 add_test(NAME TestLinSchedule COMMAND TestLinSchedule)
 add_test(NAME TestPlin COMMAND TestPlin)
 add_test(NAME TestBlf COMMAND TestBlf)

@@ -16,6 +16,7 @@
 #include "frameplaybackwindow.h"
 #include "linschedulewindow.h"
 #include "re/linscheduleanalysiswindow.h"
+#include "re/lindiagnosticswindow.h"
 #include "bisectwindow.h"
 #include "re/flowviewwindow.h"
 #include "framesenderwindow.h"
@@ -83,6 +84,7 @@ private slots:
     void showGraphingWindow();
     void showFrameDataAnalysis();
     void showLinScheduleAnalysis();
+    void showLinDiagnostics();
     void clearFrames();
     void expandAllRows();
     void collapseAllRows();
@@ -196,6 +198,7 @@ private:
 
     FrameInfoWindow *frameInfoWindow;
     LinScheduleAnalysisWindow *linScheduleAnalysisWindow;
+    LinDiagnosticsWindow *linDiagnosticsWindow;
     FramePlaybackWindow *playbackWindow;
     LinScheduleWindow *linScheduleWindow;
     FlowViewWindow *flowViewWindow;
