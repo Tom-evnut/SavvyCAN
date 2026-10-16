@@ -7,7 +7,7 @@ tested against a real LIN slave module.
 
 ---
 
-## 1. Where LIN stands (2026-10-16)
+## 1. Where LIN stands (2026-10-17)
 
 Phases 1 to 4 are largely done and the APGDT001 side is confirmed on hardware (BMW E90 HVAC flap motors at
 9600 bit/s: monitoring, header-only polling and frames with data, as master). Everything is merged in `fork-ci-lin`
@@ -20,11 +20,11 @@ Phases 1 to 4 are largely done and the APGDT001 side is confirmed on hardware (B
 | APGDT001 | Monitor and master, confirmed on the device; frames sent one frame slot apart (`lin-phase1-model`, `lin-send`) |
 | PEAK LIN | Monitor and master through PLinApi.dll loaded at run time, Windows only; not tried on a device (`lin-peak`, `lin-send`) |
 | Display | `L` / `LN` / `!` in the frame list, a LIN section in Frame Details; overwrite mode keeps header-only IDs |
-| Decoding | LDF loader into the DBC classes (LIN 1.3 to 2.2A, J2602, event-triggered frames), files matched on frame type, ID-only lookups (graphs, signal viewer, filter labels, Frame Details, file comparator) LIN-aware (`lin-phase2-ldf`, `lin-id-lookup`) |
-| Sending | As master from Send Frames, scripts and playback; LDF schedule tables kept and run by Send Frames > LIN Schedule Runner (`lin-send`, `lin-schedule`) |
+| Decoding | LDF loader into the DBC classes (LIN 1.3 to 2.2A, J2602, event-triggered frames, BCD and ASCII signals), files matched on frame type, ID-only lookups (graphs, signal viewer, filter labels, Frame Details, file comparator) LIN-aware (`lin-phase2-ldf`, `lin-id-lookup`, `lin-ldf-encodings`) |
+| Sending | As master from Send Frames (LIN rows, checksum model per row), scripts (`lin.sendFrame()`, `lin.sendHeader()`, `gotLINFrame`) and playback; LDF schedule tables run by Send Frames > LIN Schedule Runner, master frames' data set by signal (`lin-send`, `lin-schedule`, `lin-runner-signals`, `lin-send-rows`) |
 | Log files | Native CSV flags; LIN text logs; Treat Frames as LIN for flag-less captures; BLF save and load (frames, checksum and send errors, receive errors; sleep/wake-up counted); Wireshark pcap/pcapng load and pcapng save; a warning before saving LIN frames to a format that can't mark them (`lin-phase1-model`, `lin-phase2-ldf`, `lin-blf`, `lin-blf-events`, `lin-pcap`, `lin-save-warning`) |
-| RE tools | RE Tools > LIN Schedule Analysis: per-ID period, response rate, checksum models, and the schedule table reconstructed from a capture (`lin-schedule-analysis`) |
-| Not done | Slave mode, node configuration commands in schedules, LIN rows in Send Frames and `lin.sendFrame()`, LIN transport layer / diagnostics, GVRET LIN, PEAK on Linux, ASC LIN |
+| RE tools | RE Tools > LIN Schedule Analysis (schedule worked out from a capture); RE Tools > LIN Diagnostics (transport layer, node configuration, UDS over LIN, NAD and data identifier scans); the sniffer, Frame Data Analysis, Range State, Single/Multi State and fuzzing keep LIN frames apart from CAN frames of the same ID (`lin-schedule-analysis`, `lin-diagnostics`, `lin-re-tools`) |
+| Not done | Slave mode, node configuration commands and sporadic frames in schedule tables, GVRET LIN, PEAK on Linux, ASC LIN |
 
 **Branches** (each merged into `fork-ci-lin`; none is upstream yet):
 
@@ -43,6 +43,11 @@ Phases 1 to 4 are largely done and the APGDT001 side is confirmed on hardware (B
 | `lin-pcap` | `lin-save-warning` | Wireshark LIN load, pcapng save, pcaplite fixes |
 | `lin-blf-events` | `lin-blf` | BLF LIN receive errors, sleep and wake-up events |
 | `lin-schedule-analysis` | `lin-phase2-ldf` | RE Tools > LIN Schedule Analysis |
+| `lin-runner-signals` | `lin-schedule` | Schedule Runner: master frames' data set signal by signal |
+| `lin-send-rows` | `fork-ci-lin` | LIN rows in Send Frames, the `lin` script object |
+| `lin-ldf-encodings` | `lin-phase2-ldf` | LDF BCD and ASCII signals |
+| `lin-diagnostics` | `fork-ci-lin` | LIN transport layer, node configuration, UDS over LIN (RE Tools > LIN Diagnostics) |
+| `lin-re-tools` | `fork-ci-lin` | LIN frames apart from CAN frames in the sniffer, Frame Data Analysis, Range State, Single/Multi State and fuzzing |
 
 ### LIN basics the design has to carry
 
@@ -238,7 +243,7 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 2: decoding
 
-**Status: done** except LDF save/export (optional) and the BCD/ASCII encodings (shown as raw values). Checked against python `ldfparser` on real LDFs, and real captures decode.
+**Status: done.** BCD and ASCII signals decode as python `ldfparser` reads them; saving an LDF in the DBC manager writes a DBC file. Checked against python `ldfparser` on real LDFs, and real captures decode.
 
 - **LDF loader** (D4) in the DBC manager: LIN 2.0-2.2 and J2602 first, LIN 1.3 where cheap (LIN 1.x frame length
   comes from ID bits 4-5). Signals are little-endian, LSB first; logical and physical encodings map onto value
@@ -251,7 +256,7 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 3: sending
 
-**Status: master mode done** on the APGDT001 (confirmed on the device) and PEAK (untested), from Send Frames, scripts and playback, and LDF schedule tables run by the LIN Schedule Runner (`lin-schedule`). **Not done:** slave mode (APGDT001 slave profiles, PEAK publisher frame entries), node configuration commands (AssignNAD and the others) and sporadic frames in schedules, LIN rows in Send Frames, `lin.sendFrame()`, PEAK schedules in the device, playback as a slave responder only, GVRET.
+**Status: master mode done** on the APGDT001 (confirmed on the device) and PEAK (untested): Send Frames LIN rows with a checksum model each, the `lin` script object, playback, and LDF schedule tables run by the LIN Schedule Runner with master frames' data set by signal. **Not done:** slave mode (APGDT001 slave profiles, PEAK publisher frame entries), node configuration commands and sporadic frames in schedules, PEAK schedules in the device, playback as a slave responder only, GVRET.
 
 - **APGDT001:** master mode (header, or header + response) and slave mode (respond to a given ID with given data and
   checksum model), using its host and slave roles. Bus mode settable from SavvyCAN.
@@ -278,7 +283,7 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 5: reverse-engineering and diagnostics
 
-**Status: started.** Checksum model per ID (Frame Details) and schedule reconstruction (RE Tools > LIN Schedule Analysis, `lin-schedule-analysis`) are done. **Not done:** the LIN transport layer and diagnostics, UDS over LIN, and LIN in the sniffer, bit-flip, range state and fuzzing tools.
+**Status: mostly done.** Checksum model per ID (Frame Details), schedule reconstruction (RE Tools > LIN Schedule Analysis), the LIN transport layer with node configuration and UDS over LIN (RE Tools > LIN Diagnostics, with NAD and data identifier scans), and LIN frames kept apart from CAN frames in the sniffer, Frame Data Analysis, Range State, Single/Multi State and fuzzing. **Not done:** fuzzing slave responses (needs slave mode); UDS over LIN isn't in the UDS scanner, which is built on ISO-TP over CAN IDs.
 
 - **Checksum model detection:** per ID, report classic vs enhanced from captured responses (a quick hint about
   LIN version and node generation).
@@ -336,13 +341,11 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ## 6. Next steps
 
-1. Bench: run the LIN Schedule Runner against the BMW flap motors (`test/lin-data/ldf/BMW_HVAC_Flap_Motors.ldf`):
-   polling, then Set_Position and Move_To_Position. That's phase 3's "done when".
-2. LIN rows in Send Frames (checksum model per row, one-off frames) and editing master frame data by signal in the
-   schedule runner.
-3. Slave mode: APGDT001 slave profiles (needs the CBUF3 layout, from a USB capture of Microchip's GUI), PEAK
-   publisher frame entries.
-4. Node configuration commands in schedules (AssignNAD, ConditionalChangeNAD, ...), then the LIN transport layer
-   and diagnostics (phase 5).
-5. PEAK on a device, then PEAK on Linux; GVRET LIN with the ESP32RET firmware; ASC LIN when there's a sample.
-6. Offer the generic pieces upstream: `blf-save` first, then the frame model, bus type and LDF loader.
+1. Bench: the LIN Schedule Runner against the BMW flap motors (`test/lin-data/ldf/BMW_HVAC_Flap_Motors.ldf`), LIN
+   rows in Send Frames, and LIN Diagnostics (a NAD scan) on the bench slaves.
+2. Slave mode: APGDT001 slave profiles (needs the CBUF3 layout, from a USB capture of Microchip's GUI), PEAK
+   publisher frame entries; then fuzzing slave responses.
+3. Node configuration commands in schedule tables (AssignNAD and the others, now that the requests can be built).
+4. PEAK on a device, then PEAK on Linux; GVRET LIN with the ESP32RET firmware; ASC LIN when there's a sample.
+5. Offer the generic pieces upstream: `blf-save` first, then the pcaplite fixes, the frame model, bus type and LDF
+   loader.
