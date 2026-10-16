@@ -20,10 +20,15 @@ enum
     BLF_CONTAINER = 10,
     BLF_LIN_MESSAGE = 11,
     BLF_LIN_CRC_ERROR = 12,
+    BLF_LIN_RCV_ERROR = 14,
     BLF_LIN_SND_ERROR = 15,
+    BLF_LIN_SLEEP = 20,
+    BLF_LIN_WAKEUP = 21,
     BLF_LIN_MESSAGE2 = 57,
     BLF_LIN_SND_ERROR2 = 58,
     BLF_LIN_CRC_ERROR2 = 60,
+    BLF_LIN_RCV_ERROR2 = 61,
+    BLF_LIN_WAKEUP2 = 62,
     BLF_CAN_DRV_ERR = 31, // can driver error
     BLF_CAN_DRV_SYNC = 44,
     BLF_ERROR_EXT = 73,
@@ -209,14 +214,18 @@ public:
     bool loadBLF(QString filename, QVector<CommFrame>* frames);
     //CAN (object 1), CAN FD (object 100) and LIN frames in zlib-compressed log containers, as python-can writes them.
     //LIN: LIN_MESSAGE2 (57), LIN_CRC_ERROR2 (60) for a wrong checksum, LIN_SND_ERROR2 (58) for a header nobody
-    //answered. Frames BLF can't hold yet (errors, FlexRay) are skipped (counted in skippedFrames()).
+    //answered, LIN_RCV_ERROR2 (61) for other errors the device reported. Frames BLF can't hold yet (CAN errors,
+    //FlexRay) are skipped (counted in skippedFrames()).
     bool saveBLF(QString filename, const QVector<CommFrame>* frames);
     int skippedFrames() const { return mSkipped; }
+    //LIN sleep and wake-up events in the last file loaded: SavvyCAN has no frame for them, so they're only counted
+    int linEvents() const { return mLinEvents; }
 
 private:
     BLF_FILE_HEADER header;
     QList<BLF_OBJECT> objects;
     int mSkipped = 0;
+    int mLinEvents = 0;
 };
 
 #endif // BLFHANDLER_H

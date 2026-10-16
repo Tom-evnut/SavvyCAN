@@ -21,6 +21,8 @@ private slots:
     void testLinRoundTrip();
     void testLinObjects();
     void testLinLegacyObjects();
+    void testLinReceiveErrors();
+    void testLinEventsAndLegacyReceiveError();
 
 private:
     QTemporaryDir dir;
@@ -396,6 +398,119 @@ void TestBlf::testLinLegacyObjects()
     QVERIFY(in.at(2).isLinHeaderOnly());
     QCOMPARE(in.at(2).frameId(), 0x01u);
     QCOMPARE(in.at(2).timeStamp().microSeconds(), 3000ll);
+}
+
+// LIN frames with errors the device reported: saved as LIN_RCV_ERROR2 (61) and loaded back as receive errors
+void TestBlf::testLinReceiveErrors()
+{
+    QVector<CommFrame> out;
+    CommFrame framing = lin(0x10, QByteArray::fromHex("4A5593E5"), 0xE6, 0, 1000);
+    framing.setLinErrors(CommFrame::LinErrFraming);
+    CommFrame shortResponse = lin(0x11, QByteArray::fromHex("4A"), -1, 0, 2000);
+    shortResponse.setLinErrors(CommFrame::LinErrIncompleteResponse);
+    CommFrame headerError = lin(0x12, QByteArray(), -1, 1, 3000);
+    headerError.setLinErrors(CommFrame::LinErrSync);
+    CommFrame parity = lin(0x31, QByteArray::fromHex("0102030405060708"), 0xDB, 0, 4000);
+    parity.setLinReceivedPid(0x31); // should be 0xB1
+    out << framing << shortResponse << headerError << parity;
+
+    const QString name = dir.filePath("linerrors.blf");
+    BLFHandler writer;
+    QVERIFY(writer.saveBLF(name, &out));
+    QCOMPARE(writer.skippedFrames(), 0);
+    QVector<CommFrame> in;
+    BLFHandler reader;
+    QVERIFY(reader.loadBLF(name, &in));
+    QCOMPARE(in.size(), out.size());
+    for (int i = 0; i < out.size(); i++) {
+        QVERIFY(in.at(i).isLin());
+        QCOMPARE(in.at(i).frameId(), out.at(i).frameId());
+        QCOMPARE(in.at(i).getBus(), out.at(i).getBus());
+        QCOMPARE(in.at(i).payload(), out.at(i).payload());
+        QVERIFY(in.at(i).linErrors() & CommFrame::LinErrFraming); // BLF says "receive error", not which
+        QVERIFY(in.at(i).hasLinError());
+    }
+    QVERIFY(in.at(1).linErrors() & CommFrame::LinErrIncompleteResponse); // the short response is kept
+    QVERIFY(!(in.at(0).linErrors() & CommFrame::LinErrIncompleteResponse));
+
+    // the objects: four LIN_RCV_ERROR2, 152 bytes, version 1
+    QFile f(name);
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QByteArray file = f.readAll();
+    const quint32 containerSize = qFromLittleEndian<quint32>(file.constData() + 144 + 8);
+    const quint32 uncompressedSize = qFromLittleEndian<quint32>(file.constData() + 144 + 24);
+    QByteArray prefix(4, '\0');
+    qToBigEndian<quint32>(uncompressedSize, prefix.data());
+    const QByteArray objects = qUncompress(prefix + file.mid(144 + 32, containerSize - 32));
+    QStringList seen;
+    for (int pos = 0; pos + 32 <= objects.size();) {
+        const quint32 size = qFromLittleEndian<quint32>(objects.constData() + pos + 8);
+        seen << QString("%1/%2/v%3").arg(qFromLittleEndian<quint32>(objects.constData() + pos + 12)).arg(size - 32)
+                    .arg(qFromLittleEndian<quint16>(objects.constData() + pos + 22));
+        pos += size + size % 4;
+    }
+    QCOMPARE(seen, QStringList({"61/152/v1", "61/152/v1", "61/152/v1", "61/152/v1"}));
+
+    const QString dump = qEnvironmentVariable("BLF_DUMP_DIR");
+    if (!dump.isEmpty()) {
+        QFile::remove(dump + "/linerrors.blf");
+        QVERIFY(QFile::copy(name, dump + "/linerrors.blf"));
+    }
+}
+
+// the legacy receive error (14), and sleep (20) and wake-up (21, 62) events, which have no frame: only counted
+void TestBlf::testLinEventsAndLegacyReceiveError()
+{
+    auto le16 = [](QByteArray &b, quint16 v) { b.append(char(v & 0xFF)); b.append(char(v >> 8)); };
+    auto le32 = [&](QByteArray &b, quint32 v) { le16(b, v & 0xFFFF); le16(b, v >> 16); };
+    auto le64 = [&](QByteArray &b, quint64 v) { le32(b, quint32(v)); le32(b, quint32(v >> 32)); };
+    auto object = [&](quint32 type, const QByteArray &data, quint64 ns) {
+        QByteArray o("LOBJ");
+        le16(o, 32); le16(o, 1); le32(o, quint32(32 + data.size())); le32(o, type);
+        le32(o, 2); le16(o, 0); le16(o, 0); le64(o, ns);
+        o.append(data);
+        o.append(QByteArray((32 + data.size()) % 4, '\0'));
+        return o;
+    };
+    // LIN_RCV_ERROR: channel 1, ID 0x22, DLC 2, FSM ID and state, header and full time, state reason,
+    // offending byte, short error 1, no DLC timeout
+    const QByteArray rcvError = QByteArray::fromHex("0100" "2202" "0000" "0000" "00" "00" "01" "00");
+    // LIN_WAKEUP2: SOF, bit rate, channel 1, reserved, length info, signal, external, reserved
+    QByteArray wakeup2;
+    le64(wakeup2, 0); le32(wakeup2, 19200); le16(wakeup2, 1); le16(wakeup2, 0);
+    wakeup2.append(QByteArray::fromHex("00550000"));
+    QByteArray objects = object(20, QByteArray::fromHex("01000100"), 1000000)          // sleep: go-to-sleep frame
+                       + object(21, QByteArray::fromHex("01005500"), 2000000)          // wake-up
+                       + object(14, rcvError, 3000000)
+                       + object(62, wakeup2, 4000000);
+    QByteArray file("LOGG");
+    le32(file, 144);
+    file.append(QByteArray(136, '\0'));
+    QByteArray c("LOBJ");
+    le16(c, 16); le16(c, 1); le32(c, quint32(32 + objects.size())); le32(c, 10);
+    le16(c, 0); c.append(QByteArray(6, '\0')); le32(c, quint32(objects.size())); c.append(QByteArray(4, '\0'));
+    file.append(c + objects);
+    const QString name = dir.filePath("events.blf");
+    QFile f(name);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(file);
+    f.close();
+
+    QVector<CommFrame> in;
+    BLFHandler reader;
+    QVERIFY(reader.loadBLF(name, &in));
+    QCOMPARE(reader.linEvents(), 3);
+    QCOMPARE(in.size(), 1);
+    QVERIFY(in.at(0).isLin());
+    QCOMPARE(in.at(0).frameId(), 0x22u);
+    QCOMPARE(int(in.at(0).getBus()), 0);
+    QVERIFY(in.at(0).payload().isEmpty());
+    QCOMPARE(in.at(0).linErrors(), quint8(CommFrame::LinErrFraming | CommFrame::LinErrIncompleteResponse));
+    QCOMPARE(in.at(0).timeStamp().microSeconds(), 3000ll);
+
+    // a second load starts counting again
+    QVERIFY(reader.loadBLF(name, &in));
+    QCOMPARE(reader.linEvents(), 3);
 }
 
 QTEST_MAIN(TestBlf)
