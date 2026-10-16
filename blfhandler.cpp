@@ -9,9 +9,85 @@
 #define BLF_REMOTE_FLAG 0x80
 
 //BLF channels count from 1 (python-can and Vector's tools write 1 for the first); SavvyCAN's buses from 0
+//an object's own header (base + V1): an object needs at least this much to be read
+static constexpr int BLF_OBJECT_HEADER_V1_SIZE = sizeof(BLF_OBJ_HEADER_BASE) + sizeof(BLF_OBJ_HEADER_V1);
+
 static int busFromChannel(int channel)
 {
     return channel > 0 ? channel - 1 : 0;
+}
+
+/*
+ * LIN objects (layouts as in Vector's BLF, see vector_blf and Wireshark's wiretap/blf.c). The version 2 objects
+ * start with a 112-byte prefix: SOF (u64), bit rate (u32), channel (u16), reserved (u16), sync break and delimiter
+ * lengths (2 x u64), supplier and message ID (2 x u16), NAD, ID, DLC, checksum model (bytes: 0 classic,
+ * 1 enhanced), then 9 data byte timestamps (u64) - except LIN_SND_ERROR2, which has only the first 40 bytes.
+ */
+static constexpr int BLF_LIN_DESCRIPTOR_SIZE = 40;
+static constexpr int BLF_LIN_PREFIX_SIZE = 112;
+static constexpr quint8 BLF_LIN_MODEL_UNKNOWN = 0xFF;
+
+static quint16 le16At(const QByteArray &d, int at) { return qFromLittleEndian<quint16>(d.constData() + at); }
+
+//A LIN frame from what the objects hold. A checksum of 0 with no model is "no checksum": what SavvyCAN writes for
+//frames it has none for (Vector's tools always give the model).
+static CommFrame linFrameFrom(int channel, quint8 id, const QByteArray &data, quint8 checksum, int model, bool crcError,
+                              bool received, quint64 ns)
+{
+    CommFrame frame(CommFrame::LINDataFrame);
+    frame.setFrameId(id & 0x3F);
+    frame.setBus(busFromChannel(channel));
+    frame.setReceived(received);
+    frame.setPayload(data);
+    if (!data.isEmpty() && !(model == BLF_LIN_MODEL_UNKNOWN && checksum == 0 && !crcError))
+    {
+        frame.setLinChecksum(checksum);
+        if (model == 0) frame.setLinChecksumModel(CommFrame::LinChecksumClassic);
+        if (model == 1) frame.setLinChecksumModel(CommFrame::LinChecksumEnhanced);
+        frame.verifyLinChecksum();
+        if (crcError && !frame.hasLinChecksumError()) frame.setLinChecksumStatus(false); //the logger saw it wrong
+    }
+    frame.setTimeStamp(CommFrame::TimeStamp(0, qRound64(ns / 1000.0)));
+    return frame;
+}
+
+//LIN objects in a container; false if objType isn't one of them (or it's too short to be)
+static bool readLinObject(quint32 objType, const QByteArray &d, quint64 ns, QVector<CommFrame> *frames)
+{
+    switch (objType) {
+    case BLF_LIN_MESSAGE2:
+    case BLF_LIN_CRC_ERROR2:
+    {
+        if (d.size() < BLF_LIN_PREFIX_SIZE + 11) return false;
+        const int dlc = qMin(int(quint8(d.at(38))), 8);
+        const quint8 model = quint8(d.at(39));
+        const QByteArray data = d.mid(BLF_LIN_PREFIX_SIZE, dlc);
+        const quint8 checksum = quint8(le16At(d, BLF_LIN_PREFIX_SIZE + 8));
+        const quint8 dir = quint8(d.at(BLF_LIN_PREFIX_SIZE + 10));
+        frames->append(linFrameFrom(le16At(d, 12), quint8(d.at(37)), data, checksum, model,
+                                    objType == BLF_LIN_CRC_ERROR2, dir == 0, ns));
+        return true;
+    }
+    case BLF_LIN_SND_ERROR2: //a header nobody answered
+        if (d.size() < BLF_LIN_DESCRIPTOR_SIZE) return false;
+        frames->append(linFrameFrom(le16At(d, 12), quint8(d.at(37)), QByteArray(), 0, BLF_LIN_MODEL_UNKNOWN, false, true, ns));
+        return true;
+    case BLF_LIN_MESSAGE:   //legacy: channel, ID, DLC, data[8], FSM ID and state, header and full time, CRC (u16), dir
+    case BLF_LIN_CRC_ERROR:
+    {
+        if (d.size() < 19) return false;
+        const int dlc = qMin(int(quint8(d.at(3))), 8);
+        frames->append(linFrameFrom(le16At(d, 0), quint8(d.at(2)), d.mid(4, dlc), quint8(le16At(d, 16)),
+                                    BLF_LIN_MODEL_UNKNOWN, objType == BLF_LIN_CRC_ERROR, quint8(d.at(18)) == 0, ns));
+        return true;
+    }
+    case BLF_LIN_SND_ERROR: //legacy: channel, ID, DLC, ...
+        if (d.size() < 4) return false;
+        frames->append(linFrameFrom(le16At(d, 0), quint8(d.at(2)), QByteArray(), 0, BLF_LIN_MODEL_UNKNOWN, false, true, ns));
+        return true;
+    default:
+        return false;
+    }
 }
 
 BLFHandler::BLFHandler()
@@ -93,14 +169,14 @@ bool BLFHandler::loadBLF(QString filename, QVector<CommFrame>* frames)
                 pos = 0;
                 //bool foundHeader = false;
                 //first skip forward to find a header signature - usually not necessary
-                while ( (int)(pos + sizeof(BLF_OBJ_HEADER)) < uncompressedData.length())
+                while ( (qint64)pos + BLF_OBJECT_HEADER_V1_SIZE <= uncompressedData.length())
                 {
                     int32_t *headerSig = (int32_t *)(uncompressedData.constData() + pos);
                     if (*headerSig == 0x4A424F4C) break;
                     pos += 4;
                 }
                 //then process all the objects
-                while ( (int)(pos + sizeof(BLF_OBJ_HEADER)) < uncompressedData.length())
+                while ( (qint64)pos + BLF_OBJECT_HEADER_V1_SIZE <= uncompressedData.length())
                 {
                     memcpy(&obj.header.base, (uncompressedData.constData() + pos), sizeof(BLF_OBJ_HEADER_BASE));
                     memcpy(&obj.header.v1Obj, (uncompressedData.constData() + pos) + sizeof(BLF_OBJ_HEADER_BASE), sizeof(BLF_OBJ_HEADER_V1));
@@ -212,6 +288,10 @@ bool BLFHandler::loadBLF(QString filename, QVector<CommFrame>* frames)
                             frame.setTimeStamp(CommFrame::TimeStamp(0, qRound64(obj.header.v1Obj.uncompSize / 1000.0)));
                             frames->append(frame);
                         }
+                        else if (readLinObject(obj.header.base.objType, fileData, obj.header.v1Obj.uncompSize, frames))
+                        {
+                            //LIN frame read
+                        }
                         else
                         {
                             qDebug() << "Not a can frame! ObjType: " << obj.header.base.objType;
@@ -286,7 +366,7 @@ class BlfWriter
 public:
     explicit BlfWriter(QFile &file) : mFile(file) {}
 
-    void add(quint32 type, const QByteArray &data, quint64 timestampNs)
+    void add(quint32 type, const QByteArray &data, quint64 timestampNs, quint16 objectVersion = 0)
     {
         QByteArray obj;
         obj.append("LOBJ", 4);
@@ -296,7 +376,7 @@ public:
         put32(obj, type);
         put32(obj, BLF_TIME_ONE_NANS);
         put16(obj, 0); //client index
-        put16(obj, 0); //object version
+        put16(obj, objectVersion); //1 for the LIN objects: their checksum model is only read from version 1
         put64(obj, timestampNs);
         obj.append(data);
         obj.append(QByteArray((BLF_OBJ_HEADER_SIZE + data.size()) % 4, '\0')); //padding, as readers skip it
@@ -335,6 +415,75 @@ private:
     quint32 mObjects = 0;
     quint64 mUncompressed = 0;
 };
+
+//the start of the version 2 LIN objects (see readLinObject()): SOF, bit rate (not known: 0), channel, sync timings,
+//IDs, NAD, ID, DLC, checksum model, and with byteTimestamps the 9 data byte timestamps (all the frame's time)
+void putLinPrefix(QByteArray &d, const CommFrame &frame, quint64 ns, int dlc, bool byteTimestamps)
+{
+    put64(d, ns);
+    put32(d, 0);
+    put16(d, quint16(frame.getBus() + 1));
+    put16(d, 0);
+    put64(d, 0);
+    put64(d, 0);
+    put16(d, 0);
+    put16(d, 0);
+    put8(d, 0);
+    put8(d, quint8(frame.frameId() & 0x3F));
+    put8(d, quint8(dlc));
+    const CommFrame::LinChecksumModel model = frame.linChecksumModel();
+    put8(d, model == CommFrame::LinChecksumClassic ? 0 : (model == CommFrame::LinChecksumEnhanced ? 1 : BLF_LIN_MODEL_UNKNOWN));
+    if (byteTimestamps)
+        for (int i = 0; i < 9; i++) put64(d, ns);
+}
+
+//LIN_MESSAGE2, LIN_CRC_ERROR2 (wrong checksum) or LIN_SND_ERROR2 (no response); 152, 152 and 72 bytes
+void writeLinObject(BlfWriter &writer, const CommFrame &frame, quint64 ns)
+{
+    QByteArray d;
+    const QByteArray payload = frame.payload().left(8);
+    const quint8 dir = frame.isReceived() ? 0 : 1; //1: sent ("Tx receipt")
+    if (payload.isEmpty())
+    {
+        putLinPrefix(d, frame, ns, 0, false);
+        put64(d, ns);       //end of header
+        put8(d, 0);         //not an event-triggered frame
+        put8(d, 0); put8(d, 0); put8(d, 0); //FSM ID and state, reserved
+        put32(d, 0);
+        put64(d, 0);        //exact header bit rate (a double): not known
+        put32(d, 0);        //early stop bit offset
+        put32(d, 0);
+        writer.add(BLF_LIN_SND_ERROR2, d, ns, 1);
+        return;
+    }
+    QByteArray data = payload;
+    data.append(QByteArray(8 - data.size(), '\0'));
+    const quint16 checksum = frame.hasLinChecksum() ? frame.linChecksumByte() : 0;
+    putLinPrefix(d, frame, ns, int(payload.size()), true);
+    d.append(data);
+    put16(d, checksum);
+    put8(d, dir);
+    if (frame.hasLinChecksumError())
+    {
+        put8(d, 0); put8(d, 0);   //FSM ID and state
+        put8(d, 0);               //not simulated
+        put16(d, 0);
+        put32(d, 0);              //response bit rate
+        put32(d, 0);
+        put64(d, 0);              //exact header bit rate
+        put32(d, 0); put32(d, 0); //early stop bit offsets
+        writer.add(BLF_LIN_CRC_ERROR2, d, ns, 1);
+        return;
+    }
+    put8(d, 0);                   //not simulated
+    put8(d, 0); put8(d, 0); put8(d, 0); //not an event-triggered frame
+    put8(d, 0); put8(d, 0);       //FSM ID and state
+    put8(d, 0); put16(d, 0);      //reserved
+    put32(d, 0);                  //response bit rate
+    put64(d, 0);                  //exact header bit rate
+    put32(d, 0); put32(d, 0);     //early stop bit offsets
+    writer.add(BLF_LIN_MESSAGE2, d, ns, 1);
+}
 
 }
 
@@ -402,7 +551,10 @@ bool BLFHandler::saveBLF(QString filename, const QVector<CommFrame> *frames)
             writer.add(BLF_CAN_FD_MSG, data, ns);
             break;
         }
-        default: //error frames, LIN, FlexRay: not written yet
+        case CommFrame::LINDataFrame:
+            writeLinObject(writer, frame, ns);
+            break;
+        default: //error frames, FlexRay: not written yet
             mSkipped++;
             break;
         }

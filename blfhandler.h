@@ -18,6 +18,12 @@ enum
     BLF_ENV_STRING = 8,
     BLF_ENV_DATA = 9,
     BLF_CONTAINER = 10,
+    BLF_LIN_MESSAGE = 11,
+    BLF_LIN_CRC_ERROR = 12,
+    BLF_LIN_SND_ERROR = 15,
+    BLF_LIN_MESSAGE2 = 57,
+    BLF_LIN_SND_ERROR2 = 58,
+    BLF_LIN_CRC_ERROR2 = 60,
     BLF_CAN_DRV_ERR = 31, // can driver error
     BLF_CAN_DRV_SYNC = 44,
     BLF_ERROR_EXT = 73,
@@ -201,8 +207,9 @@ class BLFHandler
 public:
     BLFHandler();
     bool loadBLF(QString filename, QVector<CommFrame>* frames);
-    //CAN (object 1) and CAN FD (object 100) frames in zlib-compressed log containers, as python-can writes them;
-    //frames BLF can't hold yet are skipped (counted in skippedFrames())
+    //CAN (object 1), CAN FD (object 100) and LIN frames in zlib-compressed log containers, as python-can writes them.
+    //LIN: LIN_MESSAGE2 (57), LIN_CRC_ERROR2 (60) for a wrong checksum, LIN_SND_ERROR2 (58) for a header nobody
+    //answered. Frames BLF can't hold yet (errors, FlexRay) are skipped (counted in skippedFrames()).
     bool saveBLF(QString filename, const QVector<CommFrame>* frames);
     int skippedFrames() const { return mSkipped; }
 
