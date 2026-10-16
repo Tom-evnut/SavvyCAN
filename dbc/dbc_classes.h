@@ -142,6 +142,11 @@ public: //TODO: Clean up this class so that not everything is public. There is o
     QList<DBC_ATTRIBUTE_VALUE> attributes;
     QList<DBC_VAL_ENUM_ENTRY> valList;
     DBC_SIGNAL *self;
+    //LDF bcd_value: one decimal digit per byte, most significant first (as python ldfparser reads them); not saved
+    //in DBC files
+    bool bcdEncoded = false;
+    //the value of a BCD signal; false if a byte isn't a digit (0-9) or the frame is too short
+    bool bcdValue(const QByteArray &payload, int64_t &out) const;
 
     bool processAsText(const CommFrame &frame, QString &outString, bool outputName = true, bool outputUnit = true);
     bool processAsInt(const CommFrame &frame, int32_t &outValue);

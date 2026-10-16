@@ -27,3 +27,5 @@ leak:LdfToDbc::fill
 # which ASan's fast unwinder can't walk, hence ASAN_OPTIONS=fast_unwind_on_malloc=0 next to LSAN_OPTIONS.
 leak:tokenize
 leak:itemText
+# what processAsText caches in a signal (cachedValue): it goes with the signal, which is never freed
+leak:DBC_SIGNAL::processAsText
