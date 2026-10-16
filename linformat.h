@@ -225,6 +225,70 @@ private:
     CommFrame::LinChecksumModel mModels[64] = {};
 };
 
+/*
+ * Wireshark (pcap/pcapng) LIN packets, link type LINKTYPE_LIN (212): an 8-byte header, then the response's data.
+ *   byte 0  format revision, 1                    bytes 1-3  reserved, 0
+ *   byte 4  data length (bits 7-4), message type (bits 3-2: 0 frame, 3 event), checksum type (bits 1-0: 0 unknown or
+ *           wrong, 1 classic, 2 enhanced)
+ *   byte 5  protected ID     byte 6  checksum     byte 7  errors: 0x01 no slave response, 0x02 framing, 0x04 parity,
+ *                                                         0x08 checksum, 0x10 invalid ID, 0x20 overflow
+ * Events (wake-up, go-to-sleep) have no frame in SavvyCAN and are skipped. A header nobody answered is written as a
+ * frame with no data and the no-response error.
+ */
+constexpr int PCAP_LIN_HEADER = 8;
+
+inline QByteArray toPcapLin(const CommFrame &frame)
+{
+    const QByteArray data = frame.payload().left(CommFrame::LIN_MAX_PAYLOAD);
+    QByteArray packet(PCAP_LIN_HEADER, '\0');
+    quint8 checksumType = 0;
+    if (frame.hasLinChecksum() && !frame.hasLinChecksumError())
+    {
+        if (frame.linChecksumModel() == CommFrame::LinChecksumClassic) checksumType = 1;
+        if (frame.linChecksumModel() == CommFrame::LinChecksumEnhanced) checksumType = 2;
+    }
+    quint8 errors = 0;
+    const quint8 lin = frame.linErrors();
+    if (data.isEmpty() || (lin & CommFrame::LinErrNoResponse)) errors |= 0x01;
+    if (lin & CommFrame::LinErrFraming) errors |= 0x02;
+    if (frame.hasLinParityError()) errors |= 0x04;
+    if (frame.hasLinChecksumError()) errors |= 0x08;
+    packet[0] = 1;
+    packet[4] = char((data.size() << 4) | checksumType);
+    packet[5] = char(frame.linPid());
+    packet[6] = char(frame.hasLinChecksum() ? frame.linChecksumByte() : 0);
+    packet[7] = char(errors);
+    packet.append(data);
+    return packet;
+}
+
+//false for anything that isn't a LIN frame packet (events included)
+inline bool fromPcapLin(const unsigned char *packet, int length, CommFrame &frame)
+{
+    if (length < PCAP_LIN_HEADER || packet[0] != 1 || ((packet[4] >> 2) & 0x3) != 0) return false;
+    const int count = qMin(qMin(packet[4] >> 4, int(CommFrame::LIN_MAX_PAYLOAD)), length - PCAP_LIN_HEADER);
+    const quint8 pid = packet[5];
+    const quint8 errors = packet[7];
+    frame = CommFrame(CommFrame::LINDataFrame);
+    frame.setFrameId(pid & 0x3F);
+    frame.setLinReceivedPid(pid);
+    frame.setPayload(QByteArray(reinterpret_cast<const char *>(packet + PCAP_LIN_HEADER), count));
+    quint8 lin = 0;
+    if ((errors & 0x01) && count > 0) lin |= CommFrame::LinErrIncompleteResponse; //no data at all: a header alone
+    if (errors & 0x02) lin |= CommFrame::LinErrFraming;
+    if (errors & 0x04) lin |= CommFrame::LinErrParity;
+    if (errors & 0x30) lin |= CommFrame::LinErrDevice; //invalid ID, overflow
+    frame.setLinErrors(lin);
+    if (count > 0)
+    {
+        frame.setLinChecksum(packet[6]);
+        if ((packet[4] & 0x3) == 1) frame.setLinChecksumModel(CommFrame::LinChecksumClassic);
+        if ((packet[4] & 0x3) == 2) frame.setLinChecksumModel(CommFrame::LinChecksumEnhanced);
+        frame.verifyLinChecksum(); //finds the model when the packet doesn't say (or the checksum is wrong)
+    }
+    return true;
+}
+
 //the LIN lines of the Frame Info window for the frames of one ID (frames that aren't LIN are ignored); empty if
 //there are no LIN frames
 inline QStringList summary(const QVector<CommFrame> &frames)

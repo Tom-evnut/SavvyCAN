@@ -33,6 +33,22 @@ FrameFileIO::FrameFileIO()
 {
 }
 
+bool FrameFileIO::saveFormatKeepsLin(int saveFormat)
+{
+    //0: SavvyCAN's native CSV (LIN in the flags column), 14: CANalyzer Binary Log (BLF LIN objects),
+    //15: Wireshark pcapng (LINKTYPE_LIN)
+    return saveFormat == 0 || saveFormat == 14 || saveFormat == 15;
+}
+
+int FrameFileIO::linFrameCount(const QVector<CommFrame>* frames)
+{
+    int count = 0;
+    if (frames)
+        for (const CommFrame &frame : *frames)
+            if (frame.isLin()) count++;
+    return count;
+}
+
 bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* frameCache)
 {
     QString filename;
@@ -56,6 +72,7 @@ bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* fra
     filters.append(QString(tr("CARBUS Analyzer (*.trc *.TRC)")));
     filters.append(QString(tr("PCAN Viewer (*.trc *.TRC)")));
     filters.append(QString(tr("CANalyzer Binary Log Files (*.blf *.BLF)")));
+    filters.append(QString(tr("Wireshark pcapng: CAN, CAN FD and LIN (*.pcapng *.PCAPNG)")));
 
     dialog.setDirectory(settings.value("FileIO/LoadSaveDirectory", dialog.directory().path()).toString());
     dialog.setFileMode(QFileDialog::AnyFile);
@@ -66,6 +83,19 @@ bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* fra
     if (dialog.exec() == QDialog::Accepted)
     {
         filename = dialog.selectedFiles()[0];
+
+        const int linFrames = linFrameCount(frameCache);
+        if (linFrames && !saveFormatKeepsLin(int(filters.indexOf(dialog.selectedNameFilter()))))
+        {
+            const auto answer = QMessageBox::warning(qApp->activeWindow(), tr("Saving LIN frames"),
+                tr("%1 of the frames are LIN frames, which this format can't mark as LIN: they'll be saved as CAN "
+                   "frames with their ID and data, without the LIN checksum or errors, and load back as CAN frames "
+                   "(File > Treat Frames as LIN turns them back into LIN frames).\n\n"
+                   "SavvyCAN's native CSV, CANalyzer Binary Log (BLF) and Wireshark pcapng keep LIN frames as they are.\n\nSave anyway?")
+                    .arg(linFrames),
+                QMessageBox::Save | QMessageBox::Cancel, QMessageBox::Cancel);
+            if (answer != QMessageBox::Save) return false;
+        }
 
         QProgressDialog progress(qApp->activeWindow());
         progress.setWindowModality(Qt::WindowModal);
@@ -156,6 +186,11 @@ bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* fra
             if (!filename.contains('.')) filename += ".blf";
             result = saveCanalyzerBLF(filename, frameCache);
         }
+        if (dialog.selectedNameFilter() == filters[15])
+        {
+            if (!filename.contains('.')) filename += ".pcapng";
+            result = saveWiresharkPcapng(filename, frameCache);
+        }
 
         progress.cancel();
 
@@ -204,7 +239,7 @@ bool FrameFileIO::loadFrameFile(QString &fileName, QVector<CommFrame>* frameCach
     filters.append(QString(tr("CLX000 (*.txt *.TXT)")));                    // 22
     filters.append(QString(tr("CANServer Binary Log (*.log *.LOG)")));      // 23
     filters.append(QString(tr("Wireshark (*.pcap *.PCAP *.pcapng *.PCAPNG)"))); // 24
-    filters.append(QString(tr("Wireshark SocketCAN (*.pcap *.PCAP")));      // 25
+    filters.append(QString(tr("Wireshark SocketCAN and LIN (*.pcap *.PCAP *.pcapng *.PCAPNG)"))); // 25
     filters.append(QString(tr("IXXAT CSV export (*.csv)")));                // 26
     filters.append(QString(tr("CANWise Log (*.log)")));                     // 27
     filters.append(QString(tr("LIN text log (*.txt *.TXT)")));              // 28
@@ -5135,20 +5170,33 @@ bool FrameFileIO::isWiresharkFile(QString filename)
     return true;
 }
 
+/*
+ * Wireshark captures of CAN (link type LINKTYPE_CAN_SOCKETCAN, 227: a struct can_frame or canfd_frame) and LIN
+ * (LINKTYPE_LIN, 212: see LinFormat::toPcapLin()), pcap or pcapng. In a pcapng file each interface is a bus (the
+ * first interface bus 0), and the packets' direction flags say what was sent; packets of other link types (and LIN
+ * events) are skipped.
+ */
 bool FrameFileIO::loadWiresharkSocketCANFile(QString filename, QVector<CommFrame>* frames)
 {
     long long startTimestamp = 0;
+    bool haveStart = false;
     int lineCounter = 0;
     bool foundErrors = false;
     char errbuf[PCAP_ERRBUF_SIZE];
 
     QByteArray ba = filename.toLocal8Bit();
 
-    pcap_t *pcap_data_file = pcap_open_offline(ba.data(), errbuf, PCAP_LINKTYPE_SOCKETCAN);
+    pcap_t *pcap_data_file = pcap_open_offline(ba.data(), errbuf, PCAP_LINKTYPE_ANY);
     if (!pcap_data_file) {
         return false;
     }
+    if (!pcap_has_linktype(pcap_data_file, PCAP_LINKTYPE_SOCKETCAN) && !pcap_has_linktype(pcap_data_file, PCAP_LINKTYPE_LIN)) {
+        pcap_close(pcap_data_file);
+        return false;
+    }
 
+    int skipped = 0;
+    QHash<unsigned int, int> busOfInterface;
     pcap_pkthdr packetHeader;
     const char *packetData = (const char*)pcap_next(pcap_data_file, &packetHeader);
     while (packetData) {
@@ -5158,67 +5206,91 @@ bool FrameFileIO::loadWiresharkSocketCANFile(QString filename, QVector<CommFrame
             lineCounter = 0;
         }
 
-        CommFrame thisFrame;
-        thisFrame.setBus(0);
-
         // Timestamp
-        long long timeStamp = packetHeader.ts.tv_sec * 1000000 + packetHeader.ts.tv_usec;
-        if (0 == startTimestamp) {
+        long long timeStamp = packetHeader.ts.tv_sec * 1000000LL + packetHeader.ts.tv_usec;
+        if (!haveStart) { // the first packet (its time can be 0)
             startTimestamp = timeStamp;
+            haveStart = true;
         }
         timeStamp -= startTimestamp;
-        thisFrame.setTimeStamp(CommFrame::TimeStamp(0, timeStamp));
 
-        // ID and extended frame format
-        const quint32 can_id = qFromBigEndian<quint32>(packetData);
-        if (can_id & 0x80000000) {
-            thisFrame.setExtendedFrameFormat(true);
-                thisFrame.setFrameId(0x1fffffff & can_id);
-        } else {
-            thisFrame.setExtendedFrameFormat(false);
-            thisFrame.setFrameId(0x7ff & can_id);
+        CommFrame thisFrame;
+        bool isFrame = false;
+        if (packetHeader.linktype == PCAP_LINKTYPE_LIN) {
+            isFrame = LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(packetData), (int)packetHeader.caplen, thisFrame);
+            thisFrame.setReceived(true);
+        } else if (packetHeader.linktype == PCAP_LINKTYPE_SOCKETCAN && packetHeader.caplen >= 8) {
+            isFrame = true;
+            // ID and extended frame format
+            const quint32 can_id = qFromBigEndian<quint32>(packetData);
+            if (can_id & 0x80000000) {
+                thisFrame.setExtendedFrameFormat(true);
+                    thisFrame.setFrameId(0x1fffffff & can_id);
+            } else {
+                thisFrame.setExtendedFrameFormat(false);
+                thisFrame.setFrameId(0x7ff & can_id);
+            }
+
+            // Frame type
+            if (can_id & 0x20000000U) {
+                thisFrame.setFrameType(CommFrame::ErrorFrame);
+            } else if (can_id & 0x40000000U) {
+                thisFrame.setFrameType(CommFrame::RemoteRequestFrame);
+            } else {
+                thisFrame.setFrameType(CommFrame::CANDataFrame);
+            }
+
+            // Direction - This isn't actually officially supported, but CAN Bus Debugger device logs set this byte to 1 to indicate a TX frame and 0 for RX
+            quint8 direction = (quint8) *(packetData + 6);
+            thisFrame.setReceived((direction != 1));
+
+            // Data. A CAN FD frame is captured as 72 bytes (struct canfd_frame) instead of 16, and byte 5 holds
+            // its flags: 0x01 = bit rate switch, 0x02 = error state indicator, 0x04 = FD frame (newer kernels).
+            const quint8 fdFlags = (quint8) *(packetData + 5);
+            const bool isFD = !(can_id & 0x60000000U) && ((packetHeader.caplen > 16) || (fdFlags & 0x04));
+            int numBytes = (quint8) *(packetData + 4);
+            if (numBytes > (isFD ? 64 : 8)) {
+                numBytes = isFD ? 64 : 8;
+            }
+            if (numBytes > (int)packetHeader.caplen - 8) { // never read past the captured data
+                numBytes = qMax(0, (int)packetHeader.caplen - 8);
+            }
+            QByteArray bytes(numBytes, 0);
+            for (int d = 0; d < numBytes; d++) {
+                bytes[d] = *(packetData + 8 + d);
+            }
+            thisFrame.setPayload(bytes);
+            if (isFD) {
+                thisFrame.setFlexibleDataRateFormat(true);
+                thisFrame.setBitrateSwitch(fdFlags & 0x01);
+                thisFrame.setErrorStateIndicator(fdFlags & 0x02);
+            }
         }
 
-        // Frame type
-        if (can_id & 0x20000000U) {
-            thisFrame.setFrameType(CommFrame::ErrorFrame);
-        } else if (can_id & 0x40000000U) {
-            thisFrame.setFrameType(CommFrame::RemoteRequestFrame);
-        } else {
-            thisFrame.setFrameType(CommFrame::CANDataFrame);
+        if (isFrame) {
+            //the interface is the bus, unless it's named "bus<n>" (SavvyCAN's own pcapng files: a bus with both CAN
+            //and LIN frames has an interface for each)
+            if (!busOfInterface.contains(packetHeader.interface_id))
+            {
+                int bus = (int)packetHeader.interface_id;
+                const QString interfaceName = QString::fromUtf8(pcap_interface_name(pcap_data_file, packetHeader.interface_id));
+                const QRegularExpressionMatch busName = QRegularExpression("^bus(\\d+)").match(interfaceName);
+                if (busName.hasMatch()) bus = busName.captured(1).toInt();
+                busOfInterface.insert(packetHeader.interface_id, bus);
+            }
+            thisFrame.setBus(busOfInterface.value(packetHeader.interface_id));
+            thisFrame.setTimeStamp(CommFrame::TimeStamp(0, timeStamp));
+            if ((packetHeader.flags & 0x3) == 1) thisFrame.setReceived(true);  // pcapng direction: inbound
+            if ((packetHeader.flags & 0x3) == 2) thisFrame.setReceived(false); // outbound
+            frames->append(thisFrame);
         }
-
-        // Direction - This isn't actually officially supported, but CAN Bus Debugger device logs set this byte to 1 to indicate a TX frame and 0 for RX
-        quint8 direction = (quint8) *(packetData + 6);
-        thisFrame.setReceived((direction != 1));
-
-        // Data. A CAN FD frame is captured as 72 bytes (struct canfd_frame) instead of 16, and byte 5 holds
-        // its flags: 0x01 = bit rate switch, 0x02 = error state indicator, 0x04 = FD frame (newer kernels).
-        const quint8 fdFlags = (quint8) *(packetData + 5);
-        const bool isFD = !(can_id & 0x60000000U) && ((packetHeader.caplen > 16) || (fdFlags & 0x04));
-        int numBytes = (quint8) *(packetData + 4);
-        if (numBytes > (isFD ? 64 : 8)) {
-            numBytes = isFD ? 64 : 8;
-        }
-        if (numBytes > (int)packetHeader.caplen - 8) { // never read past the captured data
-            numBytes = qMax(0, (int)packetHeader.caplen - 8);
-        }
-        QByteArray bytes(numBytes, 0);
-        for (int d = 0; d < numBytes; d++) {
-            bytes[d] = *(packetData + 8 + d);
-        }
-        thisFrame.setPayload(bytes);
-        if (isFD) {
-            thisFrame.setFlexibleDataRateFormat(true);
-            thisFrame.setBitrateSwitch(fdFlags & 0x01);
-            thisFrame.setErrorStateIndicator(fdFlags & 0x02);
-        }
-        frames->append(thisFrame);
+        else skipped++;
 
         packetData = (const char*) pcap_next(pcap_data_file, &packetHeader);
     }
     pcap_close(pcap_data_file);
     pcap_data_file = NULL;
+    if (skipped) qDebug() << "Wireshark capture:" << skipped << "packets that aren't CAN or LIN frames skipped";
     return !foundErrors;
 }
 
@@ -5227,12 +5299,122 @@ bool FrameFileIO::isWiresharkSocketCANFile(QString filename)
     char errbuf[PCAP_ERRBUF_SIZE];
     QByteArray ba = filename.toLocal8Bit();
 
-    pcap_t *pcap_data_file = pcap_open_offline(ba.data(), errbuf, PCAP_LINKTYPE_SOCKETCAN);
+    pcap_t *pcap_data_file = pcap_open_offline(ba.data(), errbuf, PCAP_LINKTYPE_ANY);
     if (!pcap_data_file) {
         return false;
     }
+    const bool isMatch = pcap_has_linktype(pcap_data_file, PCAP_LINKTYPE_SOCKETCAN)
+                         || pcap_has_linktype(pcap_data_file, PCAP_LINKTYPE_LIN);
     pcap_close(pcap_data_file);
     pcap_data_file = NULL;
+    return isMatch;
+}
+
+/*
+ * Saves a pcapng file Wireshark reads: one interface per bus (two if a bus has both CAN and LIN frames), CAN and
+ * CAN FD frames as LINKTYPE_CAN_SOCKETCAN, LIN frames as LINKTYPE_LIN, with the direction in each packet's flags.
+ * Timestamps are the frames', in microseconds. Other frames (FlexRay) are left out.
+ */
+bool FrameFileIO::saveWiresharkPcapng(QString filename, const QVector<CommFrame>* frames)
+{
+    QFile outFile(filename);
+    if (!outFile.open(QIODevice::WriteOnly)) return false;
+
+    auto le16 = [](QByteArray &b, quint16 v) { b.append(char(v & 0xFF)); b.append(char(v >> 8)); };
+    auto le32 = [&](QByteArray &b, quint32 v) { le16(b, quint16(v & 0xFFFF)); le16(b, quint16(v >> 16)); };
+    auto pad4 = [](QByteArray &b) { while (b.size() % 4) b.append('\0'); };
+    auto block = [&](quint32 type, const QByteArray &body) {
+        QByteArray b;
+        le32(b, type);
+        le32(b, quint32(body.size() + 12));
+        b.append(body);
+        le32(b, quint32(body.size() + 12));
+        return b;
+    };
+
+    // section header: byte order magic, version 1.0, section length unknown
+    QByteArray shb;
+    le32(shb, 0x1A2B3C4D);
+    le16(shb, 1);
+    le16(shb, 0);
+    le32(shb, 0xFFFFFFFF);
+    le32(shb, 0xFFFFFFFF);
+    outFile.write(block(0x0A0D0D0A, shb));
+
+    // an interface per bus and kind of frame, in order of bus
+    QMap<QPair<int, bool>, quint32> interfaces;
+    for (const CommFrame &frame : *frames)
+    {
+        const bool lin = frame.isLin();
+        if (lin || frame.frameType() == CommFrame::CANDataFrame || frame.frameType() == CommFrame::CANFDDataFrame
+            || frame.frameType() == CommFrame::RemoteRequestFrame || frame.frameType() == CommFrame::ErrorFrame)
+            interfaces.insert(qMakePair(frame.getBus(), lin), 0);
+    }
+    quint32 next = 0;
+    for (auto it = interfaces.begin(); it != interfaces.end(); ++it)
+    {
+        it.value() = next++;
+        QByteArray idb;
+        le16(idb, it.key().second ? PCAP_LINKTYPE_LIN : PCAP_LINKTYPE_SOCKETCAN);
+        le16(idb, 0);
+        le32(idb, 0); // no snapshot length limit
+        const QByteArray name = QString("bus%1%2").arg(it.key().first).arg(it.key().second ? " LIN" : "").toUtf8();
+        le16(idb, 2); // if_name
+        le16(idb, quint16(name.size()));
+        idb.append(name);
+        pad4(idb);
+        le32(idb, 0); // opt_endofopt
+        outFile.write(block(1, idb));
+    }
+
+    int lineCounter = 0;
+    for (const CommFrame &frame : *frames)
+    {
+        if (++lineCounter > 5000)
+        {
+            qApp->processEvents();
+            lineCounter = 0;
+        }
+        const auto iface = interfaces.constFind(qMakePair(frame.getBus(), frame.isLin()));
+        if (iface == interfaces.constEnd()) continue;
+
+        QByteArray packet;
+        if (frame.isLin()) packet = LinFormat::toPcapLin(frame);
+        else
+        {
+            const bool fd = frame.hasFlexibleDataRateFormat();
+            quint32 canId = frame.frameId() & (frame.hasExtendedFrameFormat() ? 0x1FFFFFFFu : 0x7FFu);
+            if (frame.hasExtendedFrameFormat()) canId |= 0x80000000u;
+            if (frame.frameType() == CommFrame::RemoteRequestFrame) canId |= 0x40000000u;
+            if (frame.frameType() == CommFrame::ErrorFrame) canId |= 0x20000000u;
+            const QByteArray data = frame.payload().left(fd ? 64 : 8);
+            packet.append(char(canId >> 24));
+            packet.append(char(canId >> 16));
+            packet.append(char(canId >> 8));
+            packet.append(char(canId));
+            packet.append(char(data.size()));
+            packet.append(char(fd ? (0x04 | (frame.hasBitrateSwitch() ? 0x01 : 0) | (frame.hasErrorStateIndicator() ? 0x02 : 0)) : 0));
+            packet.append(2, '\0');
+            packet.append(data);
+            packet.append(QByteArray((fd ? 64 : 8) - data.size(), '\0'));
+        }
+
+        const quint64 us = quint64(qMax<qint64>(0, frame.timeStamp().microSeconds()));
+        QByteArray epb;
+        le32(epb, iface.value());
+        le32(epb, quint32(us >> 32));
+        le32(epb, quint32(us & 0xFFFFFFFF));
+        le32(epb, quint32(packet.size()));
+        le32(epb, quint32(packet.size()));
+        epb.append(packet);
+        pad4(epb);
+        le16(epb, 2); // epb_flags: the direction
+        le16(epb, 4);
+        le32(epb, frame.isReceived() ? 1 : 2);
+        le32(epb, 0); // opt_endofopt
+        outFile.write(block(6, epb));
+    }
+    outFile.close();
     return true;
 }
 

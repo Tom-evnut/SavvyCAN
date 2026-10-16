@@ -22,6 +22,10 @@ private slots:
     void testConvertToLinWithChecksum();
     void testToLinForSending();
     void testChecksumModelsForSending();
+    void testSaveFormatsKeepingLin();
+    void testPcapLinPacket();
+    void testPcapngFile();
+    void testClassicPcap();
 };
 
 static CommFrame linFrame(quint8 id, const QByteArray &data)
@@ -392,6 +396,215 @@ void TestLinFormat::testChecksumModelsForSending()
     models.learn(received(0x31, QByteArray::fromHex("0102030405060708"), 0x2A));
     QCOMPARE(models.forSending(0x31, CommFrame::LinChecksumUnknown), CommFrame::LinChecksumEnhanced);
     QCOMPARE(models.forSending(0x10, CommFrame::LinChecksumUnknown), CommFrame::LinChecksumEnhanced);
+}
+
+void TestLinFormat::testSaveFormatsKeepingLin()
+{
+    // native CSV (0) and BLF (14) mark LIN frames; saving to the others asks first
+    QVERIFY(FrameFileIO::saveFormatKeepsLin(0));
+    QVERIFY(FrameFileIO::saveFormatKeepsLin(14));
+    for (int format : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, -1})
+        QVERIFY2(!FrameFileIO::saveFormatKeepsLin(format), qPrintable(QString::number(format)));
+
+    QVector<CommFrame> frames;
+    QCOMPARE(FrameFileIO::linFrameCount(&frames), 0);
+    QCOMPARE(FrameFileIO::linFrameCount(nullptr), 0);
+    frames << CommFrame(0x10, QByteArray::fromHex("01")) << linFrame(0x10, QByteArray::fromHex("01"))
+           << linFrame(0x11, QByteArray());
+    QCOMPARE(FrameFileIO::linFrameCount(&frames), 2);
+}
+
+// Wireshark LINKTYPE_LIN packets (LinFormat::toPcapLin/fromPcapLin)
+void TestLinFormat::testPcapLinPacket()
+{
+    // ID 0x31 (PID 0xB1), 8 bytes, classic checksum 0xDB, received
+    CommFrame f = received(0x31, QByteArray::fromHex("0102030405060708"), 0xDB);
+    QByteArray p = LinFormat::toPcapLin(f);
+    QCOMPARE(p, QByteArray::fromHex("01000000" "81B1DB00" "0102030405060708")); // 8 bytes, frame, classic
+    CommFrame back;
+    QVERIFY(LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(p.constData()), int(p.size()), back));
+    QVERIFY(back.isLin());
+    QCOMPARE(back.frameId(), quint32(0x31));
+    QCOMPARE(back.payload(), f.payload());
+    QCOMPARE(back.linChecksumByte(), quint8(0xDB));
+    QVERIFY(back.linChecksumOk());
+    QCOMPARE(back.linChecksumModel(), CommFrame::LinChecksumClassic);
+    QVERIFY(!back.hasLinError());
+
+    // enhanced: 0x2A
+    p = LinFormat::toPcapLin(received(0x31, QByteArray::fromHex("0102030405060708"), 0x2A));
+    QCOMPARE(quint8(p.at(4)), quint8(0x82));
+
+    // a wrong checksum: type 0 and the checksum error bit; it loads as a checksum error
+    p = LinFormat::toPcapLin(received(0x31, QByteArray::fromHex("0102030405060708"), 0x55));
+    QCOMPARE(quint8(p.at(4)), quint8(0x80));
+    QCOMPARE(quint8(p.at(7)), quint8(0x08));
+    QVERIFY(LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(p.constData()), int(p.size()), back));
+    QVERIFY(back.hasLinChecksumError());
+
+    // a header nobody answered: no data, the no-response bit; it loads as a header alone, not as an error
+    CommFrame header = linFrame(0x02, QByteArray());
+    p = LinFormat::toPcapLin(header);
+    QCOMPARE(p, QByteArray::fromHex("01000000" "00420001"));
+    QVERIFY(LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(p.constData()), int(p.size()), back));
+    QVERIFY(back.isLinHeaderOnly());
+    QCOMPARE(back.frameId(), quint32(0x02));
+    QVERIFY(!back.hasLinError());
+
+    // a protected ID with bad parity: kept, and flagged both ways
+    CommFrame badPid = received(0x31, QByteArray::fromHex("0102030405060708"), 0xDB, 0x31);
+    p = LinFormat::toPcapLin(badPid);
+    QCOMPARE(quint8(p.at(5)), quint8(0x31));
+    QVERIFY(quint8(p.at(7)) & 0x04);
+    QVERIFY(LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(p.constData()), int(p.size()), back));
+    QVERIFY(back.hasLinParityError());
+
+    // events, other revisions and short packets aren't frames
+    const QByteArray sleep = QByteArray::fromHex("01000000" "4C000000" "B0B00001");
+    QVERIFY(!LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(sleep.constData()), int(sleep.size()), back));
+    const QByteArray rev2 = QByteArray::fromHex("02000000" "00420001");
+    QVERIFY(!LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(rev2.constData()), int(rev2.size()), back));
+    QVERIFY(!LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(p.constData()), 7, back));
+    // a length longer than the packet: only what's there
+    const QByteArray cut = QByteArray::fromHex("01000000" "81B1DB00" "0102");
+    QVERIFY(LinFormat::fromPcapLin(reinterpret_cast<const unsigned char *>(cut.constData()), int(cut.size()), back));
+    QCOMPARE(back.payload(), QByteArray::fromHex("0102"));
+}
+
+// a pcapng file with CAN, CAN FD and LIN frames on several buses, saved and loaded back
+void TestLinFormat::testPcapngFile()
+{
+    QVector<CommFrame> frames;
+    auto add = [&](CommFrame f, int bus, qint64 us, bool rx = true) {
+        f.setBus(bus);
+        f.setTimeStamp(CommFrame::TimeStamp(0, us));
+        f.setReceived(rx);
+        frames.append(f);
+    };
+    CommFrame can(0x123, QByteArray::fromHex("1122334455"));
+    add(can, 0, 1000);
+    CommFrame ext(0x18DAF110, QByteArray::fromHex("0102030405060708"));
+    ext.setExtendedFrameFormat(true);
+    add(ext, 0, 2000, false); // sent
+    CommFrame fd(0x200, QByteArray(12, char(0x5A)));
+    fd.setFrameType(CommFrame::CANFDDataFrame);
+    fd.setFlexibleDataRateFormat(true);
+    fd.setBitrateSwitch(true);
+    add(fd, 2, 3000);
+    CommFrame remote(CommFrame::RemoteRequestFrame);
+    remote.setFrameId(0x321);
+    add(remote, 0, 3500);
+    add(received(0x31, QByteArray::fromHex("0102030405060708"), 0xDB), 1, 4000);
+    add(linFrame(0x02, QByteArray()), 1, 5000);
+    add(received(0x10, QByteArray::fromHex("AA"), 0x55), 0, 6000); // LIN on bus 0 too, beside CAN
+    add(received(0x08, QByteArray::fromHex("FEFF"), 0x01), 1, 7000, false); // a LIN frame sent as master
+
+    QTemporaryDir dir;
+    const QString path = dir.filePath("mixed.pcapng");
+    QVERIFY(FrameFileIO::saveWiresharkPcapng(path, &frames));
+    if (!qEnvironmentVariable("PCAP_DUMP_DIR").isEmpty()) // for checking with tshark
+        QFile::copy(path, qEnvironmentVariable("PCAP_DUMP_DIR") + "/mixed.pcapng");
+
+    QVERIFY(FrameFileIO::isWiresharkSocketCANFile(path));
+    QVector<CommFrame> loaded;
+    QVERIFY(FrameFileIO::loadWiresharkSocketCANFile(path, &loaded));
+    QCOMPARE(loaded.size(), frames.size());
+    for (int i = 0; i < frames.size(); i++)
+    {
+        const CommFrame &a = frames.at(i);
+        const CommFrame &b = loaded.at(i);
+        const QByteArray what = QByteArray::number(i);
+        QVERIFY2(a.isLin() == b.isLin(), what);
+        QVERIFY2(a.frameId() == b.frameId(), what);
+        QVERIFY2(a.getBus() == b.getBus(), what);
+        QVERIFY2(a.isReceived() == b.isReceived(), what);
+        QVERIFY2(a.payload() == b.payload(), what);
+        QVERIFY2(b.timeStamp().microSeconds() == a.timeStamp().microSeconds() - 1000, what); // from the first frame
+        if (a.isLin())
+        {
+            QVERIFY2(a.isLinHeaderOnly() == b.isLinHeaderOnly(), what);
+            QVERIFY2(a.linChecksumByte() == b.linChecksumByte(), what);
+            QVERIFY2(a.hasLinChecksumError() == b.hasLinChecksumError(), what);
+            QVERIFY2(a.linChecksumModel() == b.linChecksumModel(), what);
+        }
+        else
+        {
+            QVERIFY2(a.frameType() == b.frameType(), what);
+            QVERIFY2(a.hasExtendedFrameFormat() == b.hasExtendedFrameFormat(), what);
+            QVERIFY2(a.hasFlexibleDataRateFormat() == b.hasFlexibleDataRateFormat(), what);
+            QVERIFY2(a.hasBitrateSwitch() == b.hasBitrateSwitch(), what);
+        }
+    }
+
+    // autodetected as a Wireshark CAN/LIN capture
+    QVector<CommFrame> detected;
+    QVERIFY(FrameFileIO::autoDetectLoadFile(path, &detected));
+    QCOMPARE(detected.size(), frames.size());
+    QVERIFY(detected.at(4).isLin());
+}
+
+// classic pcap files (one link type each): SocketCAN and LIN, built by hand
+void TestLinFormat::testClassicPcap()
+{
+    auto pcapFile = [](quint32 linkType, const QList<QPair<quint32, QByteArray>> &packets) {
+        QByteArray f;
+        auto le32 = [&f](quint32 v) { for (int i = 0; i < 4; i++) f.append(char((v >> (8 * i)) & 0xFF)); };
+        auto le16 = [&f](quint16 v) { f.append(char(v & 0xFF)); f.append(char(v >> 8)); };
+        le32(0xA1B2C3D4); le16(2); le16(4); le32(0); le32(0); le32(65535); le32(linkType);
+        for (const auto &p : packets) {
+            le32(p.first / 1000000); le32(p.first % 1000000);
+            le32(quint32(p.second.size())); le32(quint32(p.second.size()));
+            f.append(p.second);
+        }
+        return f;
+    };
+    QTemporaryDir dir;
+    auto write = [&dir](const QString &name, const QByteArray &data) {
+        QFile f(dir.filePath(name));
+        f.open(QIODevice::WriteOnly);
+        f.write(data);
+        return dir.filePath(name);
+    };
+
+    const QString can = write("can.pcap", pcapFile(227, {
+        {1000, QByteArray::fromHex("00000123" "03000000" "AABBCC0000000000")},
+        {3500, QByteArray::fromHex("98DAF110" "02000000" "1122000000000000")}}));
+    QVERIFY(FrameFileIO::isWiresharkSocketCANFile(can));
+    QVector<CommFrame> frames;
+    QVERIFY(FrameFileIO::loadWiresharkSocketCANFile(can, &frames));
+    QCOMPARE(frames.size(), 2);
+    QCOMPARE(frames.at(0).frameId(), quint32(0x123));
+    QCOMPARE(frames.at(0).payload(), QByteArray::fromHex("AABBCC"));
+    QVERIFY(!frames.at(0).isLin());
+    QVERIFY(frames.at(1).hasExtendedFrameFormat());
+    QCOMPARE(frames.at(1).frameId(), quint32(0x18DAF110));
+    QCOMPARE(frames.at(1).timeStamp().microSeconds(), qint64(2500));
+
+    const QString lin = write("lin.pcap", pcapFile(212, {
+        {0, QByteArray::fromHex("01000000" "81B1DB00" "0102030405060708")},
+        {10000, QByteArray::fromHex("01000000" "4C000000" "B0B00001")}, // go to sleep: skipped
+        {20000, QByteArray::fromHex("01000000" "00420001")}}));
+    QVERIFY(FrameFileIO::isWiresharkSocketCANFile(lin));
+    frames.clear();
+    QVERIFY(FrameFileIO::loadWiresharkSocketCANFile(lin, &frames));
+    QCOMPARE(frames.size(), 2);
+    QVERIFY(frames.at(0).isLin());
+    QVERIFY(frames.at(0).linChecksumOk());
+    QVERIFY(frames.at(1).isLinHeaderOnly());
+    QCOMPARE(frames.at(1).timeStamp().microSeconds(), qint64(20000));
+
+    // other link types aren't CAN/LIN captures (Ethernet here)
+    const QString eth = write("eth.pcap", pcapFile(1, {{0, QByteArray(60, '\0')}}));
+    QVERIFY(!FrameFileIO::isWiresharkSocketCANFile(eth));
+
+    // a packet longer than SavvyCAN's buffer is cut, not overrun, and the next one is still read
+    const QString big = write("big.pcap", pcapFile(227, {
+        {0, QByteArray(1000, char(0x01))},
+        {1000, QByteArray::fromHex("00000123" "01000000" "7700000000000000")}}));
+    frames.clear();
+    QVERIFY(FrameFileIO::loadWiresharkSocketCANFile(big, &frames));
+    QCOMPARE(frames.size(), 2);
+    QCOMPARE(frames.at(1).payload(), QByteArray::fromHex("77"));
 }
 
 QTEST_MAIN(TestLinFormat)
