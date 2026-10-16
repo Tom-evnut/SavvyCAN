@@ -118,6 +118,27 @@ target_link_libraries(TestLinFormat
     Qt6::Widgets
 )
 
+###### LDF test ######
+add_executable(TestLdf
+    test_ldf.cpp
+    ../dbc/ldfparser.cpp  # the classes under test
+    ../dbc/ldftodbc.cpp
+    ../dbc/dbchandler.cpp
+    ../dbc/dbc_classes.cpp
+    ../utility.cpp
+)
+
+target_include_directories(TestLdf PRIVATE ${SAVVYCAN_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../dbc)
+# real LDFs in the git-ignored test/lin-data/ldf are tested too, when there are any
+target_compile_definitions(TestLdf PRIVATE SAVVYCAN_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+
+target_link_libraries(TestLdf
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+    Qt6::Widgets
+)
+
 ###### CANBus test ######
 add_executable(TestCanBus
     test_canbus.cpp
@@ -142,3 +163,4 @@ add_test(NAME TestApgdt001Parser COMMAND TestApgdt001Parser)
 add_test(NAME TestCanBus COMMAND TestCanBus)
 add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
 add_test(NAME TestLinFormat COMMAND TestLinFormat)
+add_test(NAME TestLdf COMMAND TestLdf)

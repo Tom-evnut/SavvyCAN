@@ -76,6 +76,8 @@ SOURCES += main.cpp\
     dbc/dbcmessageeditor.cpp \
     dbc/dbc_classes.cpp \
     dbc/dbchandler.cpp \
+    dbc/ldfparser.cpp \
+    dbc/ldftodbc.cpp \
     dbc/dbcloadsavewindow.cpp \
     dbc/dbcmaineditor.cpp \
     dbc/dbcnodeeditor.cpp \
@@ -174,6 +176,8 @@ HEADERS  += mainwindow.h \
     re/sniffer/snifferwindow.h \
     dbc/dbc_classes.h \
     dbc/dbchandler.h \
+    dbc/ldfparser.h \
+    dbc/ldftodbc.h \
     dbc/dbcloadsavewindow.h \
     dbc/dbcmaineditor.h \
     dbc/dbcsignaleditor.h \

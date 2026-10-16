@@ -147,7 +147,10 @@ public: //TODO: Clean up this class so that not everything is public. There is o
     bool processAsInt(const CommFrame &frame, int32_t &outValue);
     bool processAsDouble(const CommFrame &frame, double &outValue);
     bool getValueString(int64_t intVal, QString &outString);
-    QString makePrettyOutput(double floatVal, int64_t intVal, bool outputName = true, bool isInteger = false, bool outputUnit = true);
+    static constexpr int64_t NO_RAW_VALUE = INT64_MIN;
+    //rawVal: the value before scaling, looked up in the value list first (NO_RAW_VALUE: only the scaled value)
+    QString makePrettyOutput(double floatVal, int64_t intVal, bool outputName = true, bool isInteger = false, bool outputUnit = true,
+                             int64_t rawVal = NO_RAW_VALUE);
     QString processSignalTree(const CommFrame &frame);
     void processAvailableSignals(const CommFrame &frame, std::map<DBC_SIGNAL, QString> &displayValues);
     DBC_ATTRIBUTE_VALUE *findAttrValByName(QString name);

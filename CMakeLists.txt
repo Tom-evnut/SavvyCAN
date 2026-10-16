@@ -76,6 +76,8 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     connections/socketcand.cpp connections/socketcand.h
     dbc/dbc_classes.cpp dbc/dbc_classes.h
     dbc/dbchandler.cpp dbc/dbchandler.h
+    dbc/ldfparser.cpp dbc/ldfparser.h
+    dbc/ldftodbc.cpp dbc/ldftodbc.h
     dbc/dbcloadsavewindow.cpp dbc/dbcloadsavewindow.h
     dbc/dbcmaineditor.cpp dbc/dbcmaineditor.h
     dbc/dbcmessageeditor.cpp dbc/dbcmessageeditor.h
