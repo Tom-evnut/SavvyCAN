@@ -20,6 +20,8 @@ private slots:
     void testLinTextLog();
     void testConvertToLin();
     void testConvertToLinWithChecksum();
+    void testToLinForSending();
+    void testChecksumModelsForSending();
 };
 
 static CommFrame linFrame(quint8 id, const QByteArray &data)
@@ -328,6 +330,68 @@ void TestLinFormat::testConvertToLinWithChecksum()
     QVector<CommFrame> nine;
     nine << canFrame(0x31, QByteArray::fromHex("0102030405060708DB"), 0);
     QCOMPARE(LinFormat::convertToLin(nine, -1, false).notLin, 1);
+}
+
+void TestLinFormat::testToLinForSending()
+{
+    CommFrame out;
+    QString why;
+    CommFrame data = canFrame(0x31, QByteArray::fromHex("0102030405060708"), 1);
+    QVERIFY(LinFormat::toLinForSending(data, CommFrame::LinChecksumClassic, out, &why));
+    QVERIFY(out.isLin());
+    QCOMPARE(out.frameId(), 0x31u);
+    QCOMPARE(int(out.getBus()), 1);
+    QVERIFY(!out.isReceived());
+    QCOMPARE(out.payload(), QByteArray::fromHex("0102030405060708"));
+    QCOMPARE(int(out.linChecksumByte()), 0xDB);
+    QVERIFY(LinFormat::toLinForSending(data, CommFrame::LinChecksumEnhanced, out, &why));
+    QCOMPARE(int(out.linChecksumByte()), 0x2A);
+    QCOMPARE(out.linChecksumModel(), CommFrame::LinChecksumEnhanced);
+
+    // diagnostic frames always use the classic checksum
+    QVERIFY(LinFormat::toLinForSending(canFrame(0x3C, QByteArray::fromHex("1006B200FF7FFFFF"), 0), CommFrame::LinChecksumEnhanced, out));
+    QCOMPARE(int(out.linChecksumByte()), 0xB7);
+    QCOMPARE(out.linChecksumModel(), CommFrame::LinChecksumClassic);
+
+    // a header alone: no data, or a remote frame
+    QVERIFY(LinFormat::toLinForSending(canFrame(0x01, QByteArray(), 0), CommFrame::LinChecksumEnhanced, out));
+    QVERIFY(out.isLinHeaderOnly());
+    CommFrame remote(CommFrame::RemoteRequestFrame);
+    remote.setFrameId(0x21);
+    remote.setPayload(QByteArray(4, '\0'));
+    QVERIFY(LinFormat::toLinForSending(remote, CommFrame::LinChecksumEnhanced, out));
+    QVERIFY(out.isLinHeaderOnly());
+    QCOMPARE(out.frameId(), 0x21u);
+
+    // a LIN frame keeps its checksum, even a wrong one (played back from a log)
+    CommFrame bad = received(0x31, QByteArray::fromHex("0102030405060708"), 0x55);
+    QVERIFY(LinFormat::toLinForSending(bad, CommFrame::LinChecksumClassic, out));
+    QCOMPARE(int(out.linChecksumByte()), 0x55);
+
+    // what can't be LIN
+    QVERIFY(!LinFormat::toLinForSending(canFrame(0x40, QByteArray::fromHex("01"), 0), CommFrame::LinChecksumClassic, out, &why));
+    QVERIFY(why.contains("isn't a LIN ID"));
+    CommFrame ext = canFrame(0x05, QByteArray::fromHex("01"), 0);
+    ext.setExtendedFrameFormat(true);
+    QVERIFY(!LinFormat::toLinForSending(ext, CommFrame::LinChecksumClassic, out, &why));
+    QVERIFY(!LinFormat::toLinForSending(canFrame(0x05, QByteArray(12, '\0'), 0), CommFrame::LinChecksumClassic, out, &why));
+    QVERIFY(why.contains("classic CAN"));
+    CommFrame err(CommFrame::ErrorFrame);
+    QVERIFY(!LinFormat::toLinForSending(err, CommFrame::LinChecksumClassic, out, &why));
+}
+
+void TestLinFormat::testChecksumModelsForSending()
+{
+    LinFormat::ChecksumModels models;
+    QCOMPARE(models.forSending(0x31, CommFrame::LinChecksumUnknown), CommFrame::LinChecksumEnhanced); // not seen yet
+    models.learn(received(0x31, QByteArray::fromHex("0102030405060708"), 0xDB)); // classic seen on the bus
+    QCOMPARE(models.forSending(0x31, CommFrame::LinChecksumUnknown), CommFrame::LinChecksumClassic);
+    QCOMPARE(models.forSending(0x31, CommFrame::LinChecksumEnhanced), CommFrame::LinChecksumEnhanced); // the bus says
+    models.learn(received(0x31, QByteArray::fromHex("0102030405060708"), 0x00)); // a bad checksum teaches nothing
+    QCOMPARE(models.forSending(0x31, CommFrame::LinChecksumUnknown), CommFrame::LinChecksumClassic);
+    models.learn(received(0x31, QByteArray::fromHex("0102030405060708"), 0x2A));
+    QCOMPARE(models.forSending(0x31, CommFrame::LinChecksumUnknown), CommFrame::LinChecksumEnhanced);
+    QCOMPARE(models.forSending(0x10, CommFrame::LinChecksumUnknown), CommFrame::LinChecksumEnhanced);
 }
 
 QTEST_MAIN(TestLinFormat)

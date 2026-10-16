@@ -9,10 +9,16 @@
 /*
  * Listening to a LIN bus through one PEAK LIN channel, without USB or the DLL in the way (that's the PlinBackend):
  *
- * Starting: register a client, connect it to the channel, initialise the channel as a slave at the bit rate, enter
+ * Starting: register a client, connect it to the channel, initialise the channel as a slave (or, to send, as a master)
+ * at the bit rate, enter
  * every frame ID (0-63) as a subscriber with automatic length and checksum type, and let all IDs through the client
  * filter. A subscriber never transmits, so the bus isn't touched; "automatic length" means no response timeout, and
  * the last byte received is taken as the checksum (PLIN-API documentation, "Message as Subscriber-AutoLength").
+ *
+ * Sending (master only): each frame sent is one LIN_Write, which puts a header on the bus. A frame with data is a
+ * publisher message: the response follows with the checksum exactly as given (checksum type "custom"), so a wrong
+ * one can be sent on purpose. A frame without data is an auto-length subscriber message: the header alone, for a
+ * slave to answer; the answer comes back like any other frame.
  *
  * Reading: standard messages become LIN CommFrames: the ID and the protected ID as received, the response's data,
  * the checksum (checked here, which also finds each ID's checksum model) and PEAK's error flags as LIN error flags.
@@ -34,9 +40,13 @@ public:
     //the channel a port names (an empty port: the first one), or nullptr
     static const PlinHardware *findHardware(const QList<PlinHardware> &hardware, const QString &port);
     static CommFrame toFrame(const PlinRcvMsg &msg); //a standard message, without its timestamp
+    static PlinMsg toMessage(const CommFrame &lin);  //a LIN frame to send (see the class comment)
 
-    bool start(const QString &port, int baudrate, QString *error);
+    bool start(const QString &port, int baudrate, QString *error, bool master = false);
     bool changeBaudrate(int baudrate, QString *error); //while running
+    bool setMaster(bool master, QString *error);       //while running: initialises the channel again
+    bool isMaster() const { return mMaster; }
+    bool send(const CommFrame &lin, QString *error);   //master only
     void stop();
     bool isRunning() const { return mRunning; }
     PlinHardware currentHardware() const { return mHardware; }
@@ -56,6 +66,8 @@ private:
 
     PlinBackend &mBackend;
     bool mRunning = false;
+    bool mMaster = false;
+    int mBaudrate = 0;
     quint8 mClient = 0;
     PlinHardware mHardware;
 

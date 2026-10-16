@@ -19,6 +19,7 @@ private slots:
     void testEarlierReplyDoesNotCount();
     void testQuietBusFlush();
     void testQuietTime();
+    void testTransmitReport();
 };
 
 // a status reply: 81, 82 (the 24 echoed configuration bytes), 83, 84, end of report
@@ -207,6 +208,20 @@ void TestApgdt001Session::testQuietTime()
     QCOMPARE(s.quietUs(), qint64(124 * 14 * 100000ll / 19200 + 15000));
     s.changeBaudCommands(2400, 0);
     QVERIFY(s.quietUs() > 80000);
+}
+
+void TestApgdt001Session::testTransmitReport()
+{
+    // ID 0x31 (PID 0xB1), 8 bytes, classic checksum 0xDB: laid out as Microchip's library builds it
+    const QByteArray full = Apgdt001Session::transmitReport(0x31, QByteArray::fromHex("0102030405060708"), 0xDB);
+    QCOMPARE(full.size(), Apgdt001Parser::REPORT_SIZE);
+    QCOMPARE(full.left(17), QByteArray::fromHex("030E840AB10102030405060708DB1F7700"));
+    QCOMPARE(full.mid(17), QByteArray(64 - 17, '\0'));
+    // one data byte: ID 5 (PID 0x85)
+    QCOMPARE(Apgdt001Session::transmitReport(0x05, QByteArray::fromHex("01"), 0xFE).left(10),
+             QByteArray::fromHex("030784038501FE1F7700"));
+    // a header alone
+    QCOMPARE(Apgdt001Session::transmitReport(0x01, QByteArray(), 0).left(8), QByteArray::fromHex("03058401C11F7700"));
 }
 
 QTEST_MAIN(TestApgdt001Session)

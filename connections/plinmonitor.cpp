@@ -57,8 +57,10 @@ bool PlinMonitor::fail(quint32 rc, const char *what, QString *error)
 
 bool PlinMonitor::configure(int baudrate, QString *error)
 {
-    quint32 rc = mBackend.initializeHardware(mClient, mHardware.handle, Plin::modSlave, quint16(baudrate));
+    quint32 rc = mBackend.initializeHardware(mClient, mHardware.handle, mMaster ? Plin::modMaster : Plin::modSlave,
+                                             quint16(baudrate));
     if (rc != Plin::errOK) return fail(rc, "can't initialise the channel", error);
+    mBaudrate = baudrate;
     for (int id = 0; id <= Plin::MAX_FRAME_ID; id++)
     {
         rc = mBackend.setFrameEntry(mClient, mHardware.handle, quint8(id), 8, Plin::dirSubscriberAutoLength, Plin::cstAuto);
@@ -69,9 +71,10 @@ bool PlinMonitor::configure(int baudrate, QString *error)
     return true;
 }
 
-bool PlinMonitor::start(const QString &port, int baudrate, QString *error)
+bool PlinMonitor::start(const QString &port, int baudrate, QString *error, bool master)
 {
     stop();
+    mMaster = master;
     if (!mBackend.isLoaded())
     {
         if (error) *error = mBackend.loadError();
@@ -120,6 +123,47 @@ bool PlinMonitor::changeBaudrate(int baudrate, QString *error)
         return false;
     }
     return configure(baudrate, error);
+}
+
+bool PlinMonitor::setMaster(bool master, QString *error)
+{
+    if (!mRunning) return false;
+    if (master == mMaster) return true;
+    mMaster = master;
+    return configure(mBaudrate, error);
+}
+
+PlinMsg PlinMonitor::toMessage(const CommFrame &lin)
+{
+    PlinMsg msg;
+    msg.frameId = CommFrame::linPidFromId(quint8(lin.frameId()));
+    const QByteArray data = lin.payload().left(CommFrame::LIN_MAX_PAYLOAD);
+    if (data.isEmpty())
+    {
+        msg.direction = Plin::dirSubscriberAutoLength; //the header alone
+        msg.length = 8;                                //not used for auto length, but must be 1-8
+        msg.checksumType = Plin::cstAuto;
+        return msg;
+    }
+    msg.direction = Plin::dirPublisher;
+    msg.length = quint8(data.size());
+    msg.checksumType = Plin::cstCustom;
+    for (int i = 0; i < data.size(); i++) msg.data[i] = quint8(data.at(i));
+    msg.checksum = lin.hasLinChecksum() ? lin.linChecksumByte()
+                                        : CommFrame::linChecksum(data, quint8(lin.frameId()), CommFrame::LinChecksumEnhanced);
+    return msg;
+}
+
+bool PlinMonitor::send(const CommFrame &lin, QString *error)
+{
+    if (!mRunning || !mMaster)
+    {
+        if (error) *error = mRunning ? "the channel isn't a master" : "not connected";
+        return false;
+    }
+    const quint32 rc = mBackend.write(mClient, mHardware.handle, toMessage(lin));
+    if (rc != Plin::errOK) return fail(rc, "sending failed", error);
+    return true;
 }
 
 void PlinMonitor::stop()

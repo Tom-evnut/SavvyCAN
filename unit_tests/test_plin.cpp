@@ -42,6 +42,15 @@ public:
         calls << QString("filter %1").arg(mask, 0, 16);
         return Plin::errOK;
     }
+    QList<PlinMsg> written;
+    quint32 failWrite = Plin::errOK;
+    quint32 write(quint8 client, quint16 h, const PlinMsg &msg) override
+    {
+        calls << QString("write %1 %2").arg(client).arg(h);
+        if (failWrite != Plin::errOK) return failWrite;
+        written << msg;
+        return Plin::errOK;
+    }
     quint32 read(quint8, PlinRcvMsg *msg) override
     {
         if (failRead != Plin::errOK) return failRead;
@@ -69,6 +78,8 @@ private slots:
     void testChangeBaudrate();
     void testStop();
     void testDllWithoutDriver();
+    void testMaster();
+    void testSend();
 
 private:
     FakePlin fake;
@@ -304,6 +315,69 @@ void TestPlin::testDllWithoutDriver()
     QString error;
     QVERIFY(!monitor.start("", 19200, &error));
     QCOMPARE(error, dll.loadError());
+}
+
+void TestPlin::testMaster()
+{
+    PlinMonitor monitor(fake);
+    QVERIFY(monitor.start("", 19200, nullptr, true));
+    QVERIFY(monitor.isMaster());
+    QCOMPARE(fake.calls.at(2), QString("init 7 11 mode 2 19200")); // a master
+    fake.calls.clear();
+    QVERIFY(monitor.setMaster(false, nullptr));
+    QCOMPARE(fake.calls.first(), QString("init 7 11 mode 1 19200")); // back to listening, same bit rate
+    QVERIFY(!monitor.isMaster());
+    fake.calls.clear();
+    QVERIFY(monitor.setMaster(false, nullptr)); // no change: nothing done
+    QVERIFY(fake.calls.isEmpty());
+    QVERIFY(monitor.changeBaudrate(9600, nullptr));
+    QVERIFY(monitor.setMaster(true, nullptr));
+    QCOMPARE(fake.calls.last(), QString("filter ffffffffffffffff"));
+    QVERIFY(fake.calls.contains("init 7 11 mode 2 9600"));
+}
+
+void TestPlin::testSend()
+{
+    PlinMonitor monitor(fake);
+    QString error;
+    CommFrame frame(CommFrame::LINDataFrame);
+    frame.setFrameId(0x31);
+    frame.setPayload(QByteArray::fromHex("0102030405060708"));
+    frame.setLinChecksum(0x55); // wrong on purpose: sent as given
+
+    QVERIFY(monitor.start("", 19200, nullptr, false));
+    QVERIFY(!monitor.send(frame, &error)); // listening only
+    QVERIFY(error.contains("isn't a master"));
+    QVERIFY(fake.written.isEmpty());
+
+    QVERIFY(monitor.setMaster(true, nullptr));
+    QVERIFY2(monitor.send(frame, &error), qPrintable(error));
+    QCOMPARE(fake.written.size(), 1);
+    const PlinMsg m = fake.written.first();
+    QCOMPARE(int(m.frameId), 0xB1); // the protected ID
+    QCOMPARE(int(m.length), 8);
+    QCOMPARE(int(m.direction), int(Plin::dirPublisher));
+    QCOMPARE(int(m.checksumType), int(Plin::cstCustom));
+    QCOMPARE(QByteArray(reinterpret_cast<const char *>(m.data), 8), QByteArray::fromHex("0102030405060708"));
+    QCOMPARE(int(m.checksum), 0x55);
+
+    CommFrame header(CommFrame::LINDataFrame);
+    header.setFrameId(0x01);
+    QVERIFY(monitor.send(header, &error));
+    const PlinMsg h = fake.written.last();
+    QCOMPARE(int(h.frameId), 0xC1);
+    QCOMPARE(int(h.direction), int(Plin::dirSubscriberAutoLength)); // the header alone: a slave answers
+    QCOMPARE(int(h.checksumType), int(Plin::cstAuto));
+    QVERIFY(h.length >= 1 && h.length <= 8);
+
+    fake.failWrite = 1; // errXmtQueueFull
+    QVERIFY(!monitor.send(frame, &error));
+    QVERIFY2(error.contains("sending failed: error 1"), qPrintable(error));
+    QVERIFY(monitor.isRunning()); // a failed send doesn't stop listening
+
+    monitor.stop();
+    QVERIFY(!monitor.send(frame, &error));
+    QCOMPARE(error, QString("not connected"));
 }
 
 QTEST_MAIN(TestPlin)

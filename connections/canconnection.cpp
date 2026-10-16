@@ -190,13 +190,16 @@ bool CANConnection::sendFrame(const CommFrame& pFrame)
         return ret;
     }
 
-    CommFrame *txFrame;
-    txFrame = getQueue().get();
-    if (txFrame)
+    if (!piReportsSentFrames()) //local echo, unless the device reports what it sends itself
     {
-        *txFrame = pFrame;        
-    }    
-    getQueue().queue();
+        CommFrame *txFrame;
+        txFrame = getQueue().get();
+        if (txFrame)
+        {
+            *txFrame = pFrame;
+        }
+        getQueue().queue();
+    }
 
     return piSendFrame(pFrame);
 }

@@ -152,6 +152,70 @@ inline Conversion convertToLin(QVector<CommFrame> &frames, int bus, bool lastByt
     return result;
 }
 
+/*
+ * Sending on a LIN bus. The Send Frames window, scripts and playback send CAN frames; on a LIN bus they become LIN
+ * frames: a data frame with a standard ID of 0-63 and up to 8 bytes is a header and that response, a remote frame
+ * (CAN's "please send this") or a frame with no data is a header alone, for a slave to answer. The checksum is
+ * calculated with the model given.
+ */
+inline bool toLinForSending(const CommFrame &in, CommFrame::LinChecksumModel model, CommFrame &out, QString *why = nullptr)
+{
+    const bool remote = in.frameType() == CommFrame::RemoteRequestFrame;
+    if (!(in.isLin() || in.frameType() == CommFrame::CANDataFrame || remote) || in.hasFlexibleDataRateFormat())
+    {
+        if (why) *why = "only classic CAN data and remote frames (or LIN frames) can be sent on a LIN bus";
+        return false;
+    }
+    if (in.hasExtendedFrameFormat() || in.frameId() > 0x3F)
+    {
+        if (why) *why = QString("ID 0x%1 isn't a LIN ID (0 to 0x3F)").arg(in.frameId(), 0, 16);
+        return false;
+    }
+    const QByteArray data = remote ? QByteArray() : in.payload();
+    if (data.size() > CommFrame::LIN_MAX_PAYLOAD)
+    {
+        if (why) *why = QString("%1 bytes: a LIN response has at most 8").arg(data.size());
+        return false;
+    }
+    out = CommFrame(CommFrame::LINDataFrame);
+    out.setFrameId(in.frameId());
+    out.setBus(in.getBus());
+    out.setReceived(false);
+    out.setTimeStamp(in.timeStamp());
+    out.setPayload(data);
+    if (!data.isEmpty())
+    {
+        const quint8 id = quint8(in.frameId());
+        //a LIN frame that already has a checksum (a LIN log being played back, say) keeps it
+        if (in.isLin() && in.hasLinChecksum()) out.setLinChecksum(in.linChecksumByte());
+        else out.setLinChecksum(CommFrame::linChecksum(data, id, model));
+        out.setLinChecksumModel(id == CommFrame::LIN_ID_MASTER_REQUEST || id == CommFrame::LIN_ID_SLAVE_RESPONSE
+                                ? CommFrame::LinChecksumClassic : model);
+    }
+    return true;
+}
+
+//The checksum model to send each ID with: the bus's, if it has one; otherwise the one the ID was last seen using
+//on the bus; enhanced (LIN 2.x) for IDs not seen yet.
+class ChecksumModels
+{
+public:
+    void learn(const CommFrame &frame)
+    {
+        if (frame.isLin() && frame.linChecksumOk() && frame.linChecksumModel() != CommFrame::LinChecksumUnknown)
+            mModels[frame.frameId() & 0x3F] = frame.linChecksumModel();
+    }
+    CommFrame::LinChecksumModel forSending(quint32 id, CommFrame::LinChecksumModel busModel) const
+    {
+        if (busModel != CommFrame::LinChecksumUnknown) return busModel;
+        const CommFrame::LinChecksumModel seen = mModels[id & 0x3F];
+        return seen != CommFrame::LinChecksumUnknown ? seen : CommFrame::LinChecksumEnhanced;
+    }
+
+private:
+    CommFrame::LinChecksumModel mModels[64] = {};
+};
+
 //the LIN lines of the Frame Info window for the frames of one ID (frames that aren't LIN are ignored); empty if
 //there are no LIN frames
 inline QStringList summary(const QVector<CommFrame> &frames)

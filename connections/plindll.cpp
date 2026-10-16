@@ -18,6 +18,15 @@ struct RawRcvMsg           //TLINRcvMsg, 40 bytes
     quint64 timestamp;
     quint16 hardware;
 };
+struct RawMsg              //TLINMsg, 13 bytes
+{
+    quint8 frameId;
+    quint8 length;
+    quint8 direction;
+    quint8 checksumType;
+    quint8 data[8];
+    quint8 checksum;
+};
 struct RawFrameEntry       //TLINFrameEntry, 14 bytes
 {
     quint8 frameId;
@@ -33,6 +42,7 @@ static_assert(offsetof(RawRcvMsg, errorFlags) == 16, "TLINRcvMsg.ErrorFlags at +
 static_assert(offsetof(RawRcvMsg, timestamp) == 24, "TLINRcvMsg.TimeStamp at +24");
 static_assert(offsetof(RawRcvMsg, hardware) == 32, "TLINRcvMsg.hHw at +32");
 static_assert(sizeof(RawFrameEntry) == 14, "TLINFrameEntry is 14 bytes");
+static_assert(sizeof(RawMsg) == 13, "TLINMsg is 13 bytes");
 
 //__stdcall on 32-bit Windows; 64-bit Windows has one calling convention
 #if defined(_WIN32) && !defined(_WIN64)
@@ -50,6 +60,7 @@ typedef quint32 (PLIN_CALL *GetHardwareParamFn)(quint16 hw, quint16 param, void 
 typedef quint32 (PLIN_CALL *SetFrameEntryFn)(quint8 client, quint16 hw, RawFrameEntry *entry);
 typedef quint32 (PLIN_CALL *SetClientFilterFn)(quint8 client, quint16 hw, quint64 mask);
 typedef quint32 (PLIN_CALL *ReadFn)(quint8 client, RawRcvMsg *msg);
+typedef quint32 (PLIN_CALL *WriteFn)(quint8 client, quint16 hw, RawMsg *msg);
 typedef quint32 (PLIN_CALL *GetErrorTextFn)(quint32 error, quint8 language, char *buffer, quint16 bufferBytes);
 
 RegisterClientFn pRegisterClient = nullptr;
@@ -62,6 +73,7 @@ GetHardwareParamFn pGetHardwareParam = nullptr;
 SetFrameEntryFn pSetFrameEntry = nullptr;
 SetClientFilterFn pSetClientFilter = nullptr;
 ReadFn pRead = nullptr;
+WriteFn pWrite = nullptr;
 GetErrorTextFn pGetErrorText = nullptr;
 
 //TLINHardwareParam
@@ -94,9 +106,10 @@ PlinDll::PlinDll()
     pSetFrameEntry = reinterpret_cast<SetFrameEntryFn>(mLib.resolve("LIN_SetFrameEntry"));
     pSetClientFilter = reinterpret_cast<SetClientFilterFn>(mLib.resolve("LIN_SetClientFilter"));
     pRead = reinterpret_cast<ReadFn>(mLib.resolve("LIN_Read"));
+    pWrite = reinterpret_cast<WriteFn>(mLib.resolve("LIN_Write"));
     pGetErrorText = reinterpret_cast<GetErrorTextFn>(mLib.resolve("LIN_GetErrorText"));
     if (!pRegisterClient || !pRemoveClient || !pConnectClient || !pDisconnectClient || !pInitializeHardware ||
-        !pGetAvailableHardware || !pGetHardwareParam || !pSetFrameEntry || !pSetClientFilter || !pRead || !pGetErrorText)
+        !pGetAvailableHardware || !pGetHardwareParam || !pSetFrameEntry || !pSetClientFilter || !pRead || !pWrite || !pGetErrorText)
     {
         mLoadError = "PLinApi.dll is missing functions SavvyCAN needs (an old PLIN driver?)";
         mLib.unload();
@@ -197,6 +210,19 @@ quint32 PlinDll::read(quint8 client, PlinRcvMsg *msg)
     msg->timestampUs = raw.timestamp;
     msg->hardware = raw.hardware;
     return rc;
+}
+
+quint32 PlinDll::write(quint8 client, quint16 hw, const PlinMsg &msg)
+{
+    if (!mLoaded) return NOT_LOADED;
+    RawMsg raw = {};
+    raw.frameId = msg.frameId;
+    raw.length = msg.length;
+    raw.direction = msg.direction;
+    raw.checksumType = msg.checksumType;
+    for (int i = 0; i < 8; i++) raw.data[i] = msg.data[i];
+    raw.checksum = msg.checksum;
+    return pWrite(client, hw, &raw);
 }
 
 QString PlinDll::errorText(quint32 error)

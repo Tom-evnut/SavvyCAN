@@ -47,6 +47,21 @@ QByteArray Apgdt001Session::controlBlockReport(const QByteArray &block)
     return commandReport(command);
 }
 
+QByteArray Apgdt001Session::transmitReport(quint8 id, const QByteArray &data, quint8 checksum)
+{
+    const QByteArray bytes = data.left(CommFrame::LIN_MAX_PAYLOAD);
+    const int counted = 1 + int(bytes.size()) + (bytes.isEmpty() ? 0 : 1); //PID, data, checksum
+    QByteArray command(1, char(0x03));
+    command.append(char(counted + 4));  //84, the count, ..., 1F, 77
+    command.append(char(0x84));
+    command.append(char(counted));
+    command.append(char(CommFrame::linPidFromId(id)));
+    command.append(bytes);
+    if (!bytes.isEmpty()) command.append(char(checksum));
+    command.append(QByteArray::fromHex("1F7700"));
+    return commandReport(command);
+}
+
 void Apgdt001Session::armCheck(int baud, qint64 nowUs)
 {
     mBaud = baud;
