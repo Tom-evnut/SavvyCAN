@@ -114,30 +114,29 @@ bool BLFHandler::loadBLF(QString filename, QVector<CommFrame>* frames)
     BLF_CAN_OBJ canObject;
     BLF_CAN_OBJ2 canObject2;
 
-    QFile *inFile = new QFile(filename);
+    QFile inFile(filename);
 
-    if (!inFile->open(QIODevice::ReadOnly))
+    if (!inFile.open(QIODevice::ReadOnly))
     {
-        delete inFile;
         return false;
     }
-    inFile->read((char *)&header, sizeof(header));
+    inFile.read((char *)&header, sizeof(header));
     if (qFromLittleEndian(header.sig) == 0x47474F4C)
     {
         qDebug() << "Proper BLF file header token";
     }
     else return false;
 
-    while (!inFile->atEnd())
+    while (!inFile.atEnd())
     {
-        qDebug() << "Position within file: " << inFile->pos();
-        inFile->read((char *)&objHeader.base, sizeof(BLF_OBJ_HEADER_BASE));
+        qDebug() << "Position within file: " << inFile.pos();
+        inFile.read((char *)&objHeader.base, sizeof(BLF_OBJ_HEADER_BASE));
         if (qFromLittleEndian(objHeader.base.sig) == 0x4A424F4C)
         {
             int readSize = objHeader.base.objSize - sizeof(BLF_OBJ_HEADER_BASE);
             qDebug() << "Proper object header token. Read Size: " << readSize;
-            fileData = inFile->read(readSize);
-            junk = inFile->read(readSize % 4); //file is padded so sizes must always end up on even multiple of 4
+            fileData = inFile.read(readSize);
+            junk = inFile.read(readSize % 4); //file is padded so sizes must always end up on even multiple of 4
             //qDebug() << "Fudge bytes in readSize: " << (readSize % 4);
 
             switch (objHeader.base.objType)
