@@ -96,9 +96,13 @@ DBC_SIGNAL *makeSignal(const LdfDocument &doc, DBCFile *file, const LdfSignal &l
                 break;
             case LdfEncodingValue::Bcd:
                 notes << "BCD encoded";
+                sig->bcdEncoded = true;
                 break;
             case LdfEncodingValue::Ascii:
                 notes << "ASCII encoded";
+                //text, when the bytes line up (SavvyCAN's text signals are whole bytes)
+                if (sig->startBit % 8 == 0 && sig->signalSize % 8 == 0) sig->valType = STRING;
+                else if (warnings) *warnings << QString("signal %1: ASCII but not in whole bytes, shown as a number").arg(ls.name);
                 break;
             }
         }

@@ -27,6 +27,7 @@ private slots:
     void testErrors();
 
     void testLoadAsDbc();
+    void testBcdAndAscii();
     void testDecode();
     void testEventTriggeredDecode();
     void testMatchingOnFrameType();
@@ -520,8 +521,8 @@ void TestLdf::testEventTriggeredDecode()
 
     const quint8 mirrorPid = CommFrame::linPidFromId(0x21);
     QCOMPARE(int(mirrorPid), 0x61);
-    // the mirror answered: byte 0 is MirrorEvent's protected ID, then fault = 1 (bit 8), code = 0x2A (bits 9-16)
-    CommFrame frame = linFrame(0x3A, QByteArray(1, char(mirrorPid)) + QByteArray::fromHex("5500"));
+    // the mirror answered: byte 0 is MirrorEvent's protected ID, then fault = 1 (bit 8), code = 7 (bits 9-16, BCD)
+    CommFrame frame = linFrame(0x3A, QByteArray(1, char(mirrorPid)) + QByteArray::fromHex("0F00"));
     DBC_SIGNAL *mirrorFault = events->sigHandler->findSignalByName("MirrorFault");
     DBC_SIGNAL *seatFault = events->sigHandler->findSignalByName("SeatFault");
     QVERIFY(mirrorFault && seatFault);
@@ -531,7 +532,10 @@ void TestLdf::testEventTriggeredDecode()
     QVERIFY(mirrorFault->processAsDouble(frame, value));
     QCOMPARE(value, 1.0);
     QVERIFY(events->sigHandler->findSignalByName("MirrorCode")->processAsDouble(frame, value));
-    QCOMPARE(value, 42.0);
+    QCOMPARE(value, 7.0);
+    // 0x2A isn't a BCD digit
+    const CommFrame notBcd = linFrame(0x3A, QByteArray(1, char(mirrorPid)) + QByteArray::fromHex("5500"));
+    QVERIFY(!events->sigHandler->findSignalByName("MirrorCode")->processAsDouble(notBcd, value));
 
     QString text;
     QVERIFY(events->multiplexorSignal->processAsText(frame, text));
@@ -613,6 +617,72 @@ void TestLdf::testDbcBusType()
     can.setLin(true);
     QVERIFY(can.isLin());
     QCOMPARE(can.findAttributeByName("BusType", ATTR_TYPE_GENERAL)->defaultValue.toString(), QString("LIN"));
+}
+
+// bcd_value and ascii_value signals, read as python ldfparser reads them: BCD one digit per byte, most significant
+// first; ASCII as text
+void TestLdf::testBcdAndAscii()
+{
+    const char *ldf = R"LDF(
+LIN_description_file;
+LIN_protocol_version = "2.1";
+LIN_language_version = "2.1";
+LIN_speed = 19.2 kbps;
+Nodes {
+  Master: M, 5 ms, 0.1 ms;
+  Slaves: S;
+}
+Signals {
+  Count: 16, {0, 0}, S, M;
+  Name: 24, {0x41, 0x42, 0x43}, S, M;
+  Odd: 16, {0, 0}, S, M;
+}
+Frames {
+  Info: 0x10, S, 8 {
+    Count, 0;
+    Name, 16;
+    Odd, 44;
+  }
+}
+Signal_encoding_types {
+  Digits { bcd_value; }
+  Text { ascii_value; }
+}
+Signal_representation {
+  Digits: Count;
+  Text: Name, Odd;
+}
+)LDF";
+    DBCFile file;
+    QVERIFY(file.loadFile(writeFile("encodings.ldf", ldf)));
+    DBC_MESSAGE *msg = file.messageHandler->findMsgByID(0x10);
+    QVERIFY(msg);
+    DBC_SIGNAL *count = msg->sigHandler->findSignalByName("Count");
+    DBC_SIGNAL *name = msg->sigHandler->findSignalByName("Name");
+    DBC_SIGNAL *odd = msg->sigHandler->findSignalByName("Odd");
+    QVERIFY(count->bcdEncoded);
+    QCOMPARE(name->valType, STRING);
+    QCOMPARE(odd->valType, UNSIGNED_INT); // ASCII not in whole bytes: a number
+
+    // Count = 4, 2 (digits) -> 42; Name = "SAV"
+    const CommFrame frame = linFrame(0x10, QByteArray::fromHex("0402534156000000"));
+    double value = 0;
+    QVERIFY(count->processAsDouble(frame, value));
+    QCOMPARE(value, 42.0);
+    int32_t intValue = 0;
+    QVERIFY(count->processAsInt(frame, intValue));
+    QCOMPARE(intValue, 42);
+    QString text;
+    QVERIFY(count->processAsText(frame, text, false, false));
+    QCOMPARE(text, QString("42"));
+    QVERIFY(name->processAsText(frame, text, false));
+    QCOMPARE(text, QString("SAV"));
+    // a byte over 9 isn't BCD
+    QVERIFY(!count->processAsDouble(linFrame(0x10, QByteArray::fromHex("0A02534156000000")), value));
+    // a frame too short for the signal
+    QVERIFY(!count->processAsDouble(linFrame(0x10, QByteArray::fromHex("04")), value));
+    QVERIFY(name->processAsText(linFrame(0x10, QByteArray::fromHex("040253")), text, false)); // what's there
+    QCOMPARE(text, QString("S"));
 }
 
 void TestLdf::testSaveAsDbc()

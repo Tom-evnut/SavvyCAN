@@ -273,7 +273,8 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
         QString buildString;
         int startByte = startBit / 8;
         int bytes = signalSize / 8;
-        for (int x = 0; x < bytes; x++) buildString.append(frame.payload().constData()[startByte + x]);
+        for (int x = 0; x < bytes && startByte + x < frame.payload().size(); x++) //not past a short frame
+            buildString.append(frame.payload().constData()[startByte + x]);
         outString = buildString;
         cachedValue = outString;
         return true;
@@ -283,7 +284,11 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
     if (valType == SIGNED_INT) isSigned = true;
     if (valType == SIGNED_INT || valType == UNSIGNED_INT)
     {
-        result = Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned);
+        if (bcdEncoded)
+        {
+            if (!bcdValue(frame.payload(), result)) return false;
+        }
+        else result = Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned);
         rawValue = result;
         endResult = ((double)result * factor) + bias;
         result = (int64_t)endResult;
@@ -315,6 +320,22 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
 
     outString = makePrettyOutput(endResult, result, outputName, isInteger, outputUnit, rawValue);
     cachedValue = endResult;
+    return true;
+}
+
+bool DBC_SIGNAL::bcdValue(const QByteArray &payload, int64_t &out) const
+{
+    const int digits = qMax(1, signalSize / 8);
+    out = 0;
+    for (int i = 0; i < digits; i++)
+    {
+        const int bit = startBit + 8 * i;
+        const int width = qMin(8, signalSize); //a signal under a byte is one digit
+        if ((bit + width + 7) / 8 > payload.size()) return false;
+        const int64_t digit = Utility::processIntegerSignal(payload, bit, width, true, false);
+        if (digit > 9) return false;
+        out = out * 10 + digit;
+    }
     return true;
 }
 
@@ -395,7 +416,13 @@ bool DBC_SIGNAL::processAsInt(const CommFrame &frame, int32_t &outValue)
         return false;
     }*/
 
-    result = static_cast<int32_t>(Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned));
+    if (bcdEncoded)
+    {
+        int64_t bcd = 0;
+        if (!bcdValue(frame.payload(), bcd)) return false;
+        result = static_cast<int32_t>(bcd);
+    }
+    else result = static_cast<int32_t>(Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned));
 
     double endResult = (result * factor) + bias;
     result = static_cast<int32_t>(endResult);
@@ -429,7 +456,11 @@ bool DBC_SIGNAL::processAsDouble(const CommFrame &frame, double &outValue)
             result = 0;
             return false;
         }
-        result = Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned);
+        if (bcdEncoded)
+        {
+            if (!bcdValue(frame.payload(), result)) return false;
+        }
+        else result = Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned);
         endResult = ((double)result * factor) + bias;
         result = (int64_t)endResult;
     }
