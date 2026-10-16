@@ -220,10 +220,12 @@ void GraphingWindow::updatedFrames(int numFrames)
             appendedToGraph = false;
             x.clear();
             y.clear();
+            const int lin = linFramesFor(graphParams[j]);
             for (int i = modelFrames->count() - numFrames; i < modelFrames->count(); i++)
             {
                 thisFrame = modelFrames->at(i);
-                if ( graphParams[j].ID == thisFrame.frameId() && ( (graphParams[j].bus == -1) || (graphParams[j].bus == thisFrame.getBus()) ) && ( (graphParams[j].frameLen == -1) || (graphParams[j].frameLen == thisFrame.payload().length()) ) )
+                if ( graphParams[j].ID == thisFrame.frameId() && ( (graphParams[j].bus == -1) || (graphParams[j].bus == thisFrame.getBus()) ) && ( (graphParams[j].frameLen == -1) || (graphParams[j].frameLen == thisFrame.payload().length()) )
+                     && (lin == -1 || lin == int(thisFrame.isLin())) )
                 {
                     appendToGraph(graphParams[j], thisFrame, x, y);
                     appendedToGraph = true;
@@ -1093,7 +1095,7 @@ void GraphingWindow::loadDefinitions()
                    }
                    if (tokens.length() > 22)
                    {
-                       DBC_MESSAGE *msg = dbcHandler->findMessage(gp.ID);
+                       DBC_MESSAGE *msg = dbcHandler->findMessageWithSignal(gp.ID, tokens[22]);
                        if (msg)
                        {
                             gp.associatedSignal = msg->sigHandler->findSignalByName(tokens[22]);
@@ -1146,7 +1148,7 @@ void GraphingWindow::loadDefinitions()
                    }
                    if (tokens.length() > 21)
                    {
-                       DBC_MESSAGE *msg = dbcHandler->findMessage(gp.ID);
+                       DBC_MESSAGE *msg = dbcHandler->findMessageWithSignal(gp.ID, tokens[21]);
                        if (msg)
                        {
                             gp.associatedSignal = msg->sigHandler->findSignalByName(tokens[21]);
@@ -1395,6 +1397,14 @@ void GraphingWindow::appendToGraph(GraphParams &params, CommFrame &frame, QVecto
     }
 }
 
+//a graph of a DBC/LDF signal only takes the frames its message describes: LIN frames (1) for a LIN file's signal,
+//the others (0) otherwise, as LIN IDs (0-63) overlap CAN IDs. A graph of raw bits takes any (-1).
+int GraphingWindow::linFramesFor(const GraphParams &params) const
+{
+    if (!params.associatedSignal || !params.associatedSignal->parentMessage) return -1;
+    return dbcHandler->isLinMessage(params.associatedSignal->parentMessage) ? 1 : 0;
+}
+
 void GraphingWindow::createGraph(GraphParams &params, bool createGraphParam)
 {
     int64_t tempVal; //64 bit temp value.
@@ -1412,12 +1422,14 @@ void GraphingWindow::createGraph(GraphParams &params, bool createGraphParam)
     qDebug() << "Mask: " << params.mask;
 
     frameCache.clear();
+    const int lin = linFramesFor(params);
     for (int i = 0; i < modelFrames->count(); i++)
     {
         CommFrame thisFrame = modelFrames->at(i);
         if ( (thisFrame.frameId() == params.ID) && thisFrame.isDataFrame()
             &&  ( ( params.bus == -1) ||  (params.bus == thisFrame.getBus()) )
-            &&  ( ( params.frameLen == -1) ||  (params.frameLen == thisFrame.payload().length()) ) ) frameCache.append(thisFrame);
+            &&  ( ( params.frameLen == -1) ||  (params.frameLen == thisFrame.payload().length()) )
+            &&  ( lin == -1 || lin == int(thisFrame.isLin()) ) ) frameCache.append(thisFrame);
     }
 
     //to fix weirdness where a graph that has no data won't be able to be edited, selected, or deleted properly

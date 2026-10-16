@@ -573,7 +573,9 @@ void FrameInfoWindow::updateDetailsWindow(QString newID)
         std::vector<int64_t> sortedIntervals;
         int64_t intervalSum = 0;
 
-        DBC_MESSAGE *msg = dbcHandler->findMessageForFilter(targettedID, nullptr);
+        //frames of this ID can be CAN and LIN (LIN IDs are 0-63): each is decoded with the message for its kind
+        DBC_MESSAGE *canMsg = dbcHandler->findMessageForFilter(targettedID, nullptr, false);
+        DBC_MESSAGE *linMsg = dbcHandler->findMessageForFilter(targettedID, nullptr, true);
 
         //then find all data points
         for (int j = 0; j < frameCache.count(); j++)
@@ -634,6 +636,7 @@ void FrameInfoWindow::updateDetailsWindow(QString newID)
 
             //Search every signal in the selected message and give output of the range the signal took and
             //how many messages contained each discrete value.
+            DBC_MESSAGE *msg = frameCache.at(j).isLin() ? linMsg : canMsg;
             if (msg)
             {
                 int numSignals = msg->sigHandler->getCount();

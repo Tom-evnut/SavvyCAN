@@ -2587,6 +2587,35 @@ DBC_MESSAGE* DBCHandler::findMessage(uint32_t id)
     return nullptr;
 }
 
+DBC_MESSAGE* DBCHandler::findMessage(uint32_t id, bool lin)
+{
+    for (int i = 0; i < loadedFiles.count(); i++)
+    {
+        if (loadedFiles[i]->isLin() != lin) continue;
+        DBC_MESSAGE* msg = loadedFiles[i]->messageHandler->findMsgByID(id);
+        if (msg != nullptr) return msg;
+    }
+    return nullptr;
+}
+
+DBC_MESSAGE* DBCHandler::findMessageWithSignal(uint32_t id, const QString &signalName)
+{
+    for (int i = 0; i < loadedFiles.count(); i++)
+    {
+        DBC_MESSAGE* msg = loadedFiles[i]->messageHandler->findMsgByID(id);
+        if (msg != nullptr && msg->sigHandler->findSignalByName(signalName)) return msg;
+    }
+    return nullptr;
+}
+
+bool DBCHandler::isLinMessage(const DBC_MESSAGE *msg)
+{
+    if (!msg) return false;
+    for (int i = 0; i < loadedFiles.count(); i++)
+        if (loadedFiles[i]->messageHandler->findMsgByID(msg->ID) == msg) return loadedFiles[i]->isLin();
+    return false;
+}
+
 // This function won't care which bus the DBC file is associated, but will return any message as long as ID matches and the file
 // has filter labeling enabled.
 // Returns the found message as well as the matching criteria (exact/J1939/GMLAN) 
@@ -2606,6 +2635,31 @@ DBC_MESSAGE* DBCHandler::findMessageForFilter(uint32_t id, MatchingCriteria_t * 
         }
     }
     return nullptr;
+}
+
+DBC_MESSAGE* DBCHandler::findMessageForFilter(uint32_t id, MatchingCriteria_t * matchingCriteria, bool lin)
+{
+    for (int i = 0; i < loadedFiles.count(); i++)
+    {
+        if (loadedFiles[i]->isLin() != lin || !loadedFiles[i]->messageHandler->filterLabeling()) continue;
+        DBC_MESSAGE* msg = loadedFiles[i]->messageHandler->findMsgByID(id);
+        if (msg != nullptr)
+        {
+            if (matchingCriteria) *matchingCriteria = loadedFiles[i]->messageHandler->getMatchingCriteria();
+            return msg;
+        }
+    }
+    return nullptr;
+}
+
+QString DBCHandler::messageNamesForFilter(uint32_t id, MatchingCriteria_t * matchingCriteria)
+{
+    MatchingCriteria_t linCriteria;
+    DBC_MESSAGE *other = findMessageForFilter(id, matchingCriteria, false);
+    DBC_MESSAGE *lin = findMessageForFilter(id, other ? &linCriteria : matchingCriteria, true);
+    if (other && lin && other->name != lin->name) return other->name + " / " + lin->name;
+    if (other) return other->name;
+    return lin ? lin->name : QString();
 }
 
 

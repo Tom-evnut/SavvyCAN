@@ -61,6 +61,7 @@ public:
 
 public slots:
     void createGraph(GraphParams &params, bool createGraphParam = true);
+    int linFramesFor(const GraphParams &params) const;
 
 private slots:
     void titleDoubleClick(QMouseEvent *event, QCPTextElement *title);

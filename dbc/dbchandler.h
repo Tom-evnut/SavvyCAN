@@ -135,7 +135,15 @@ public:
     DBC_MESSAGE* findMessage(const QString msgName, const QString fullyQualifiedNodeName);
     DBC_MESSAGE* findMessage(const QString msgName, const QString nodeName, const QString fileNameNoExt);
     DBC_MESSAGE* findMessage(uint32_t id);
+    //LIN IDs (0-63) overlap CAN IDs, so where only an ID is known these say which kind of file to look in
+    DBC_MESSAGE* findMessage(uint32_t id, bool lin); //only LIN files (lin true) or only the others
+    DBC_MESSAGE* findMessageWithSignal(uint32_t id, const QString &signalName); //the first message of that ID that has it
+    bool isLinMessage(const DBC_MESSAGE *msg); //whether msg is a message of a LIN file
     DBC_MESSAGE* findMessageForFilter(uint32_t id, MatchingCriteria_t * matchingCriteria);
+    DBC_MESSAGE* findMessageForFilter(uint32_t id, MatchingCriteria_t * matchingCriteria, bool lin);
+    //names of the messages with that ID in files with filter labeling on: one per kind of file (LIN and not), as
+    //"name" or "CAN name / LIN name"; empty if none
+    QString messageNamesForFilter(uint32_t id, MatchingCriteria_t * matchingCriteria = nullptr);
     int getFileCount();
     DBCFile* getFileByIdx(int idx);
     DBCFile* getFileByName(QString name);
