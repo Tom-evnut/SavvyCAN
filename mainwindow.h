@@ -127,6 +127,7 @@ private slots:
     void toggleCapture();
     void normalizeTiming();
     void handleCropLog();
+    void handleTreatAsLin();
     void updateFilterList();
     void filterListItemChanged(QListWidgetItem *item);
     void busFilterListItemChanged(QListWidgetItem *item);

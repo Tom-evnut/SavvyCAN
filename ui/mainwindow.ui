@@ -504,6 +504,7 @@
     <addaction name="actionSave_Decoded_Frames_CSV"/>
     <addaction name="separator"/>
     <addaction name="actionCrop_Log"/>
+    <addaction name="actionTreat_As_LIN"/>
     <addaction name="separator"/>
     <addaction name="actionPreferences"/>
     <addaction name="separator"/>
@@ -717,6 +718,11 @@
   <action name="actionCrop_Log">
    <property name="text">
     <string>Crop Log to Frame Range</string>
+   </property>
+  </action>
+  <action name="actionTreat_As_LIN">
+   <property name="text">
+    <string>Treat Frames as LIN...</string>
    </property>
   </action>
   <action name="actionFrame_Search">

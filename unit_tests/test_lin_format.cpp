@@ -18,6 +18,8 @@ private slots:
     void testSummaryNoLin();
     void testNativeCsvFile();
     void testLinTextLog();
+    void testConvertToLin();
+    void testConvertToLinWithChecksum();
 };
 
 static CommFrame linFrame(quint8 id, const QByteArray &data)
@@ -245,6 +247,87 @@ void TestLinFormat::testLinTextLog()
     other.write("Time Stamp,ID,Extended,Dir,Bus,LEN,D1,D2,D3,D4,D5,D6,D7,D8\n1000,00000031,false,Rx,0,1,01,00,00,00,00,00,00,00,\n");
     other.close();
     QVERIFY(!FrameFileIO::isLinTextLog(csv));
+}
+
+static CommFrame canFrame(quint32 id, const QByteArray &data, int bus)
+{
+    CommFrame frame(CommFrame::CANDataFrame);
+    frame.setFrameId(id);
+    frame.setPayload(data); // more than 8 bytes: CAN FD
+    frame.setBus(bus);
+    return frame;
+}
+
+void TestLinFormat::testConvertToLin()
+{
+    QVector<CommFrame> frames;
+    frames << canFrame(0x10, QByteArray::fromHex("4A55"), 0)      // converted
+           << canFrame(0x3F, QByteArray(), 0)                      // converted: a header with no response
+           << canFrame(0x10, QByteArray::fromHex("01"), 1)         // other bus
+           << canFrame(0x40, QByteArray::fromHex("01"), 0)         // ID too big
+           << canFrame(0x123, QByteArray::fromHex("01"), 0)        // ID too big
+           << canFrame(0x05, QByteArray(12, '\0'), 0);             // CAN FD
+    CommFrame extended = canFrame(0x05, QByteArray::fromHex("01"), 0);
+    extended.setExtendedFrameFormat(true);
+    CommFrame remote(CommFrame::RemoteRequestFrame);
+    remote.setFrameId(0x05);
+    remote.setBus(0);
+    CommFrame alreadyLin = received(0x31, QByteArray::fromHex("0102030405060708"), 0xDB);
+    alreadyLin.setBus(0);
+    frames << extended << remote << alreadyLin;
+
+    const LinFormat::Conversion result = LinFormat::convertToLin(frames, 0, false);
+    QCOMPARE(result.converted, 2);
+    QCOMPARE(result.notLin, 4); // 0x40, 0x123, FD, extended; the remote frame isn't counted
+    QVERIFY(frames.at(0).isLin());
+    QCOMPARE(frames.at(0).payload(), QByteArray::fromHex("4A55"));
+    QVERIFY(!frames.at(0).hasLinChecksum());
+    QVERIFY(frames.at(0).isValid());
+    QVERIFY(frames.at(1).isLinHeaderOnly());
+    QVERIFY(!frames.at(2).isLin());
+    QVERIFY(!frames.at(3).isLin());
+    QVERIFY(!frames.at(5).isLin());
+    QVERIFY(!frames.at(6).isLin());
+    QCOMPARE(frames.at(7).frameType(), CommFrame::RemoteRequestFrame);
+    QVERIFY(frames.at(8).linChecksumOk()); // LIN frames are left alone
+
+    // all buses, and running it again changes nothing
+    QCOMPARE(LinFormat::convertToLin(frames, -1, false).converted, 1);
+    QCOMPARE(LinFormat::convertToLin(frames, -1, false).converted, 0);
+    QVERIFY(frames.at(2).isLin());
+}
+
+void TestLinFormat::testConvertToLinWithChecksum()
+{
+    QVector<CommFrame> frames;
+    frames << canFrame(0x31, QByteArray::fromHex("0102030405060708DB"), 0) // 9 bytes: loaded as CAN FD
+           << canFrame(0x31, QByteArray::fromHex("01020304050607082A"), 0)
+           << canFrame(0x31, QByteArray::fromHex("010203040506070800"), 0) // wrong checksum
+           << canFrame(0x10, QByteArray::fromHex("4A5593E5E6"), 0)
+           << canFrame(0x10, QByteArray::fromHex("AA"), 0)                 // one byte: kept as data
+           << canFrame(0x10, QByteArray(10, '\0'), 0);                     // too long even with a checksum
+    QCOMPARE(frames.at(0).frameType(), CommFrame::CANFDDataFrame);
+
+    const LinFormat::Conversion result = LinFormat::convertToLin(frames, -1, true);
+    QCOMPARE(result.converted, 5);
+    QCOMPARE(result.notLin, 1);
+    QCOMPARE(frames.at(0).payload(), QByteArray::fromHex("0102030405060708"));
+    QCOMPARE(frames.at(0).linChecksumModel(), CommFrame::LinChecksumClassic);
+    QVERIFY(frames.at(0).linChecksumOk());
+    QVERIFY(!frames.at(0).hasFlexibleDataRateFormat());
+    QVERIFY(frames.at(0).isValid());
+    QCOMPARE(frames.at(1).linChecksumModel(), CommFrame::LinChecksumEnhanced);
+    QVERIFY(frames.at(2).hasLinChecksumError());
+    QCOMPARE(frames.at(3).payload(), QByteArray::fromHex("4A5593E5"));
+    QVERIFY(frames.at(3).linChecksumOk());
+    QCOMPARE(frames.at(4).payload(), QByteArray::fromHex("AA"));
+    QVERIFY(!frames.at(4).hasLinChecksum());
+    QVERIFY(!frames.at(5).isLin());
+
+    // without the option, 9 bytes can't be LIN
+    QVector<CommFrame> nine;
+    nine << canFrame(0x31, QByteArray::fromHex("0102030405060708DB"), 0);
+    QCOMPARE(LinFormat::convertToLin(nine, -1, false).notLin, 1);
 }
 
 QTEST_MAIN(TestLinFormat)

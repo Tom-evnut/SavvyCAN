@@ -10,6 +10,7 @@
 #include "dbc/dbchandler.h"
 #include "connections/canconnection.h"
 #include "utility.h"
+#include "linformat.h"
 
 enum class Column {
     TimeStamp = 0, ///< The timestamp when the frame was transmitted or received
@@ -65,6 +66,8 @@ public:
     void saveFilterFile(QString filename);
     void setSearchFilter(const QString &text);
     void normalizeTiming();
+    //frames loaded as CAN that are really LIN (see LinFormat::convertToLin()); bus -1 is every bus
+    LinFormat::Conversion convertToLin(int bus, bool lastByteIsChecksum);
     void recalcOverwrite();
     bool needsFilterRefresh();
     void insertFrames(const QVector<CommFrame> &newFrames);

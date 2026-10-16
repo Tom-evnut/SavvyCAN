@@ -12,6 +12,13 @@
 
 #include <QClipboard>
 #include <QTimer>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <algorithm>
 /*
 Some notes on things I'd like to put into the program but haven't put on github (yet)
 
@@ -125,6 +132,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->actionSave_Decoded_Frames, &QAction::triggered, this, &MainWindow::handleSaveDecoded);
     connect(ui->actionSave_Decoded_Frames_CSV, &QAction::triggered, this, &MainWindow::handleSaveDecodedCsv);
     connect(ui->actionCrop_Log, &QAction::triggered, this, &MainWindow::handleCropLog);
+    connect(ui->actionTreat_As_LIN, &QAction::triggered, this, &MainWindow::handleTreatAsLin);
     connect(ui->actionSingle_Multi_State_2, &QAction::triggered, this, &MainWindow::showSingleMultiWindow);
     connect(ui->actionFile_Comparison, &QAction::triggered, this, &MainWindow::showComparisonWindow);
     connect(ui->actionDBC_Comparison, &QAction::triggered, this, &MainWindow::showDBCComparisonWindow);
@@ -1425,6 +1433,54 @@ void MainWindow::handleCropLog()
     ui->lbNumFrames->setText(QString::number(model->rowCount()));
     bDirty = true;
     emit framesUpdated(-2);
+}
+
+//LIN captures loaded as CAN (CSV without LIN flags, other tools' logs): turn the frames that can be LIN into LIN
+//frames, so LDF files decode them
+void MainWindow::handleTreatAsLin()
+{
+    const QVector<CommFrame> *src = model->getListReference();
+    if (src->isEmpty())
+    {
+        QMessageBox::information(this, tr("Treat Frames as LIN"), tr("No frames loaded."));
+        return;
+    }
+    QSet<int> buses;
+    for (const CommFrame &frame : *src) buses.insert(frame.getBus());
+    QList<int> busList = buses.values();
+    std::sort(busList.begin(), busList.end());
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Treat Frames as LIN"));
+    QVBoxLayout *layout = new QVBoxLayout(&dlg);
+    QLabel *intro = new QLabel(tr("Frames with a standard ID of 0 to 63 and at most 8 data bytes become LIN frames, "
+                                  "so LIN description files (LDF) decode them. Other frames stay as they are. "
+                                  "Save as native CSV afterwards to keep them as LIN."), &dlg);
+    intro->setWordWrap(true);
+    layout->addWidget(intro);
+    QFormLayout *form = new QFormLayout;
+    QComboBox *busBox = new QComboBox(&dlg);
+    busBox->addItem(tr("All buses"), -1);
+    for (int bus : busList) busBox->addItem(tr("Bus %1").arg(bus), bus);
+    form->addRow(tr("Frames on:"), busBox);
+    QCheckBox *checksumBox = new QCheckBox(tr("The last data byte is the LIN checksum"), &dlg);
+    checksumBox->setToolTip(tr("For logs that keep the checksum: it's taken off the data and checked"));
+    form->addRow(QString(), checksumBox);
+    layout->addLayout(form);
+    QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const LinFormat::Conversion result = model->convertToLin(busBox->currentData().toInt(), checksumBox->isChecked());
+    bDirty = true;
+    emit framesUpdated(-2);
+    QString message = tr("%1 frames are now LIN frames.").arg(result.converted);
+    if (result.notLin > 0)
+        message += "\n" + tr("%1 frames were left as CAN: extended IDs, IDs over 63, CAN FD or more than 8 bytes.")
+                              .arg(result.notLin);
+    QMessageBox::information(this, tr("Treat Frames as LIN"), message);
 }
 
 void MainWindow::handleLoadFile()
