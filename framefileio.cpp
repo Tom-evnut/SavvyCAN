@@ -33,6 +33,21 @@ FrameFileIO::FrameFileIO()
 {
 }
 
+bool FrameFileIO::saveFormatKeepsLin(int saveFormat)
+{
+    //0: SavvyCAN's native CSV (LIN in the flags column), 14: CANalyzer Binary Log (BLF LIN objects)
+    return saveFormat == 0 || saveFormat == 14;
+}
+
+int FrameFileIO::linFrameCount(const QVector<CommFrame>* frames)
+{
+    int count = 0;
+    if (frames)
+        for (const CommFrame &frame : *frames)
+            if (frame.isLin()) count++;
+    return count;
+}
+
 bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* frameCache)
 {
     QString filename;
@@ -66,6 +81,19 @@ bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* fra
     if (dialog.exec() == QDialog::Accepted)
     {
         filename = dialog.selectedFiles()[0];
+
+        const int linFrames = linFrameCount(frameCache);
+        if (linFrames && !saveFormatKeepsLin(int(filters.indexOf(dialog.selectedNameFilter()))))
+        {
+            const auto answer = QMessageBox::warning(qApp->activeWindow(), tr("Saving LIN frames"),
+                tr("%1 of the frames are LIN frames, which this format can't mark as LIN: they'll be saved as CAN "
+                   "frames with their ID and data, without the LIN checksum or errors, and load back as CAN frames "
+                   "(File > Treat Frames as LIN turns them back into LIN frames).\n\n"
+                   "SavvyCAN's native CSV and CANalyzer Binary Log (BLF) keep LIN frames as they are.\n\nSave anyway?")
+                    .arg(linFrames),
+                QMessageBox::Save | QMessageBox::Cancel, QMessageBox::Cancel);
+            if (answer != QMessageBox::Save) return false;
+        }
 
         QProgressDialog progress(qApp->activeWindow());
         progress.setWindowModality(Qt::WindowModal);

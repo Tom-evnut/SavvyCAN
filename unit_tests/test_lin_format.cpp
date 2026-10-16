@@ -11,6 +11,7 @@ class TestLinFormat : public QObject
 
 private slots:
     void testTypeLabel();
+    void testSaveFormatsKeepingLin();
     void testCsvFlags();
     void testApplyCsvFlags();
     void testCsvFlagsRoundTrip();
@@ -328,6 +329,22 @@ void TestLinFormat::testConvertToLinWithChecksum()
     QVector<CommFrame> nine;
     nine << canFrame(0x31, QByteArray::fromHex("0102030405060708DB"), 0);
     QCOMPARE(LinFormat::convertToLin(nine, -1, false).notLin, 1);
+}
+
+void TestLinFormat::testSaveFormatsKeepingLin()
+{
+    // native CSV (0) and BLF (14) mark LIN frames; saving to the others asks first
+    QVERIFY(FrameFileIO::saveFormatKeepsLin(0));
+    QVERIFY(FrameFileIO::saveFormatKeepsLin(14));
+    for (int format : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, -1})
+        QVERIFY2(!FrameFileIO::saveFormatKeepsLin(format), qPrintable(QString::number(format)));
+
+    QVector<CommFrame> frames;
+    QCOMPARE(FrameFileIO::linFrameCount(&frames), 0);
+    QCOMPARE(FrameFileIO::linFrameCount(nullptr), 0);
+    frames << CommFrame(0x10, QByteArray::fromHex("01")) << linFrame(0x10, QByteArray::fromHex("01"))
+           << linFrame(0x11, QByteArray());
+    QCOMPARE(FrameFileIO::linFrameCount(&frames), 2);
 }
 
 QTEST_MAIN(TestLinFormat)

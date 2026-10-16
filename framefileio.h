@@ -28,6 +28,9 @@ public:
     //These routines call the below loading/saving functions so no need to use them directly if you don't want.
     static bool loadFrameFile(QString &, QVector<CommFrame>*);
     static bool saveFrameFile(QString &, const QVector<CommFrame>*);
+    //save formats (the index in saveFrameFile's list) that mark LIN frames as LIN; the others save them as CAN frames
+    static bool saveFormatKeepsLin(int saveFormat);
+    static int linFrameCount(const QVector<CommFrame>* frames);
 
     //These do the actual loading and saving and can be used directly if you'd prefer
     static bool autoDetectLoadFile(QString, QVector<CommFrame>*);
