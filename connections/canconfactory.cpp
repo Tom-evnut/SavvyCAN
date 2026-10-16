@@ -8,6 +8,7 @@
 #include "canserver.h"
 #include "canlogserver.h"
 #include "apgdt001.h"
+#include "peaklin.h"
 
 using namespace CANCon;
 
@@ -35,6 +36,8 @@ CANConnection* CanConFactory::create(type pType, QString pPortName, QString pDri
         return new CanLogServer(pPortName);
     case APGDT001:
         return new Apgdt001(pPortName, pBusSpeed);
+    case PEAKLIN:
+        return new PeakLin(pPortName, pBusSpeed);
     default: {}
     }
 

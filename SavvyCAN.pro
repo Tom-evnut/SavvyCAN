@@ -28,6 +28,9 @@ SOURCES += main.cpp\
     connections/apgdt001.cpp \
     connections/apgdt001parser.cpp \
     connections/apgdt001session.cpp \
+    connections/peaklin.cpp \
+    connections/plindll.cpp \
+    connections/plinmonitor.cpp \
     connections/canlogserver.cpp \
     connections/canserver.cpp \
     connections/lawicel_serial.cpp \
@@ -118,6 +121,10 @@ HEADERS  += mainwindow.h \
     connections/apgdt001.h \
     connections/apgdt001parser.h \
     connections/apgdt001session.h \
+    connections/peaklin.h \
+    connections/plinbackend.h \
+    connections/plindll.h \
+    connections/plinmonitor.h \
     canframemodel.h \
     connections/canlogserver.h \
     connections/canserver.h \

@@ -51,6 +51,7 @@ private:
     void selectCANserver();
     void selectCANlogserver();
     void selectApgdt001();
+    void selectPeakLin();
     bool isSerialBusAvailable();
     void setPortName(CANCon::type pType, QString pPortName, QString pDriver);
     void fillBusSpeedLists();
