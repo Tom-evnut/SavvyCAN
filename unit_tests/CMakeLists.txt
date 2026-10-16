@@ -159,6 +159,22 @@ target_link_libraries(TestCanBus
 
 # Enable ctest integration
 enable_testing()
+###### LIN schedule analysis test ######
+add_executable(TestLinScheduleAnalysis
+    test_lin_schedule_analysis.cpp
+    ../linscheduleanalysis.cpp  # the code under test
+)
+
+target_include_directories(TestLinScheduleAnalysis PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+# real LIN text logs in the git-ignored test/lin-data/captures are analysed too, when there are any
+target_compile_definitions(TestLinScheduleAnalysis PRIVATE SAVVYCAN_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+
+target_link_libraries(TestLinScheduleAnalysis
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 add_test(NAME TestIsoTpHandler COMMAND TestIsoTpHandler)
 add_test(NAME TestUdsHandler COMMAND TestUdsHandler)
 add_test(NAME TestLinFrame COMMAND TestLinFrame)
@@ -167,6 +183,7 @@ add_test(NAME TestCanBus COMMAND TestCanBus)
 add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
 add_test(NAME TestLinFormat COMMAND TestLinFormat)
 add_test(NAME TestLdf COMMAND TestLdf)
+add_test(NAME TestLinScheduleAnalysis COMMAND TestLinScheduleAnalysis)
 # the DBC classes never free a file's messages and signals (GUI windows keep pointers to them), so under
 # AddressSanitizer those leaks are suppressed: see lsan_dbc_ownership.supp. Other leaks still fail the test.
 # The slow unwinder gets allocation stacks through Qt's libraries, so the suppressions can name our functions.

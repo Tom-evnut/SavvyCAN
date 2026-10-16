@@ -57,6 +57,8 @@ SOURCES += main.cpp\
     frameplaybackwindow.cpp \
     candatagrid.cpp \
     framesenderwindow.cpp \
+    linscheduleanalysis.cpp \
+    re/linscheduleanalysiswindow.cpp \
     framefileio.cpp \
     mainsettingsdialog.cpp \
     scriptingwindow.cpp \
@@ -155,6 +157,8 @@ HEADERS  += mainwindow.h \
     frameplaybackwindow.h \
     candatagrid.h \
     framesenderwindow.h \
+    linscheduleanalysis.h \
+    re/linscheduleanalysiswindow.h \
     can_trigger_structs.h \
     framefileio.h \
     config.h \

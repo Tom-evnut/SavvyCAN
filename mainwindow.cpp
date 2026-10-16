@@ -83,6 +83,7 @@ MainWindow::MainWindow(QWidget *parent) :
 
     lastGraphingWindow = nullptr;
     frameInfoWindow = nullptr;
+    linScheduleAnalysisWindow = nullptr;
     playbackWindow = nullptr;
     flowViewWindow = nullptr;
     frameSenderWindow = nullptr;
@@ -119,6 +120,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->actionOpen_Log_File, &QAction::triggered, this, &MainWindow::handleLoadFile);
     connect(ui->actionGraph_Dta, &QAction::triggered, this, &MainWindow::showGraphingWindow);
     connect(ui->actionFrame_Data_Analysis, &QAction::triggered, this, &MainWindow::showFrameDataAnalysis);
+    connect(ui->actionLIN_Schedule_Analysis, &QAction::triggered, this, &MainWindow::showLinScheduleAnalysis);
     connect(ui->actionSave_Log_File, &QAction::triggered, this, &MainWindow::handleSaveFile);
     connect(ui->actionSave_Filtered_Log_File, &QAction::triggered, this, &MainWindow::handleSaveFilteredFile);
     connect(ui->actionLoad_Filter_Definition, &QAction::triggered, this, &MainWindow::handleLoadFilters);
@@ -333,6 +335,7 @@ void MainWindow::killEmAll()
         killWindow(win);
     }
     killWindow(frameInfoWindow);
+    killWindow(linScheduleAnalysisWindow);
     killWindow(playbackWindow);
     killWindow(flowViewWindow);
     killWindow(frameSenderWindow);
@@ -2073,6 +2076,15 @@ void MainWindow::showFrameDataAnalysis()
             frameInfoWindow = new FrameInfoWindow(model->getFilteredListReference());
     }
     frameInfoWindow->show();
+}
+
+void MainWindow::showLinScheduleAnalysis()
+{
+    if (!linScheduleAnalysisWindow)
+        linScheduleAnalysisWindow = new LinScheduleAnalysisWindow(useFiltered ? model->getFilteredListReference()
+                                                                              : model->getListReference());
+    linScheduleAnalysisWindow->show();
+    linScheduleAnalysisWindow->raise();
 }
 
 void MainWindow::showISOInterpreterWindow()
