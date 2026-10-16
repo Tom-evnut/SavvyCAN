@@ -1037,7 +1037,8 @@ void MainWindow::setupSendToLatestGraphWindow()
     GraphParams param;
     QString signalName = getSignalNameFromPosition(contextMenuPosition);
     param.ID = getMessageIDFromPosition(contextMenuPosition);
-    DBC_MESSAGE *msg = dbcHandler->findMessage(param.ID);
+    //the message the row was decoded with: the ID alone could be a CAN or a LIN message
+    DBC_MESSAGE *msg = dbcHandler->findMessageWithSignal(param.ID, signalName);
     if(msg)
     {
         DBC_SIGNAL *sig = msg->sigHandler->findSignalByName(signalName);

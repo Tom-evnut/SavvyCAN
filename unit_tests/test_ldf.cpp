@@ -559,6 +559,30 @@ void TestLdf::testMatchingOnFrameType()
     CommFrame canOnly(0x3C, QByteArray(8, '\0'));
     QVERIFY(!handler->findMessage(canOnly)); // the CAN file has no 0x3C and the LDF doesn't match CAN
 
+    // where only an ID is known (graphs, the signal viewer, filter labels): by kind of file, or by signal
+    DBC_MESSAGE *canMsg = handler->findMessage(0x10, false);
+    DBC_MESSAGE *linMsg = handler->findMessage(0x10, true);
+    QVERIFY(canMsg && linMsg);
+    QCOMPARE(canMsg->name, QString("CanMsg"));
+    QCOMPARE(linMsg->name, QString("SeatStatus"));
+    QVERIFY(!handler->findMessage(0x3C, false));
+    QVERIFY(handler->isLinMessage(linMsg));
+    QVERIFY(!handler->isLinMessage(canMsg));
+    QVERIFY(!handler->isLinMessage(nullptr));
+    QCOMPARE(handler->findMessageWithSignal(0x10, "SeatPosition"), linMsg);
+    QCOMPARE(handler->findMessageWithSignal(0x10, "CanSig"), canMsg);
+    QVERIFY(!handler->findMessageWithSignal(0x10, "NoSuchSignal"));
+
+    // filter labels name both, from the files with filter labeling on
+    handler->getFileByIdx(0)->messageHandler->setFilterLabeling(true);
+    handler->getFileByIdx(1)->messageHandler->setFilterLabeling(true);
+    QCOMPARE(handler->messageNamesForFilter(0x10), QString("CanMsg / SeatStatus"));
+    QCOMPARE(handler->messageNamesForFilter(0x3C), QString("MasterReq"));
+    QCOMPARE(handler->findMessageForFilter(0x10, nullptr, true), linMsg);
+    handler->getFileByIdx(1)->messageHandler->setFilterLabeling(false);
+    QCOMPARE(handler->messageNamesForFilter(0x10), QString("CanMsg"));
+    QVERIFY(handler->messageNamesForFilter(0x3C).isEmpty());
+
     // a file that fails to load isn't returned (it used to give back the last file loaded)
     QVERIFY(!handler->loadDBCFile(dir.filePath("missing.dbc")));
     QCOMPARE(handler->getFileCount(), 2);

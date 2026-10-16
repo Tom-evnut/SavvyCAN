@@ -5,6 +5,18 @@
 #include <QSettings>
 #include <qevent.h>
 
+//the names of the messages with this ID: the IDs here stand for every frame of that ID, CAN or LIN (LIN IDs are 0-63
+//and overlap CAN IDs), so a message of each kind of file, as "name" or "CAN name / LIN name"
+static QString messageNames(uint32_t id)
+{
+    DBCHandler *dbcHandler = DBCHandler::getReference();
+    DBC_MESSAGE *other = dbcHandler->findMessage(id, false);
+    DBC_MESSAGE *lin = dbcHandler->findMessage(id, true);
+    if (other && lin && other->name != lin->name) return other->name + " / " + lin->name;
+    if (other) return other->name;
+    return lin ? lin->name : QString();
+}
+
 FileComparatorWindow::FileComparatorWindow(QWidget *parent) :
     QDialog(parent),
     ui(new Ui::FileComparatorWindow)
@@ -355,10 +367,10 @@ void FileComparatorWindow::calculateDetails()
         if (!referenceIDs.contains(keyone))
         {
             valuesBase = new QTreeWidgetItem();
-            DBC_MESSAGE *msg = dbcHandler->findMessage(keyone);
-            if (msg)
+            const QString names = messageNames(keyone);
+            if (!names.isEmpty())
             {
-                valuesBase->setText(0, Utility::formatHexNum(keyone) + " (" + msg->name + ")");
+                valuesBase->setText(0, Utility::formatHexNum(keyone) + " (" + names + ")");
             }
             else valuesBase->setText(0, Utility::formatHexNum(keyone));
             interestedOnlyBase->addChild(valuesBase);
@@ -367,10 +379,10 @@ void FileComparatorWindow::calculateDetails()
         {
             interestedHadUnique = false;
             sharedItem = new QTreeWidgetItem();
-            DBC_MESSAGE *msg = dbcHandler->findMessage(keyone);
-            if (msg)
+            const QString names = messageNames(keyone);
+            if (!names.isEmpty())
             {
-                sharedItem->setText(0, Utility::formatHexNum(keyone) + " (" + msg->name + ")");
+                sharedItem->setText(0, Utility::formatHexNum(keyone) + " (" + names + ")");
             }
             else sharedItem->setText(0, Utility::formatHexNum(keyone));
             //if the ID was in both files then we can use the data accumulated above in bitmap
@@ -502,10 +514,10 @@ void FileComparatorWindow::calculateDetails()
             if (!interestedIDs.contains(keytwo))
             {
                 valuesBase = new QTreeWidgetItem();
-                DBC_MESSAGE *msg = dbcHandler->findMessage(keytwo);
-                if (msg)
+                const QString names = messageNames(keytwo);
+                if (!names.isEmpty())
                 {
-                    valuesBase->setText(0, Utility::formatHexNum(keytwo) + " (" + msg->name + ")" );
+                    valuesBase->setText(0, Utility::formatHexNum(keytwo) + " (" + names + ")" );
                 }
                 else valuesBase->setText(0, Utility::formatHexNum(keytwo));
                 referenceOnlyBase->addChild(valuesBase);

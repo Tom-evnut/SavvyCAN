@@ -73,19 +73,20 @@ QListWidgetItem * FilterUtility::createFilterItem(uint32_t id, QListWidget* pare
     if (settings.value("Main/FilterLabeling", false).toBool())
     {
         // Filter labeling (show interpreted frame names next to the CAN addr ID)
+        //an ID can be both a CAN and a LIN message (LIN IDs are 0-63), and the list doesn't say which: both names
         MatchingCriteria_t matchingCriteria;
-        DBC_MESSAGE *msg = dbcHandler->findMessageForFilter(id,&matchingCriteria);
-        if (msg != nullptr)
+        const QString names = dbcHandler->messageNamesForFilter(id, &matchingCriteria);
+        if (!names.isEmpty())
         {
             filterItemName.append(" ");
-            filterItemName.append(msg->name);
+            filterItemName.append(names);
 
             // Create tooltip to show the whole name just in case it's too long to fit in the filter window.
             // Also if the matching criteria is set to GMLAN, show the Arbitration ID as well
             QString tooltip;
             if (matchingCriteria == GMLAN)
                 tooltip.append("0x" + QString::number(FilterUtility::getGMLanArbitrationId(id), 16).toUpper().rightJustified(4,'0') + ": ");
-            tooltip.append(msg->name);
+            tooltip.append(names);
             thisItem->setToolTip(tooltip);
         }
     }

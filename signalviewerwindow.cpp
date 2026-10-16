@@ -96,7 +96,8 @@ void SignalViewerWindow::processFrame(CommFrame &frame)
     {
         sig = signalList.at(i);
         if (!sig) return;
-        if (sig->parentMessage->ID == frame.frameId())
+        //LIN IDs (0-63) overlap CAN IDs: a signal only takes the kind of frame its file describes
+        if (sig->parentMessage->ID == frame.frameId() && dbcHandler->isLinMessage(sig->parentMessage) == frame.isLin())
         {
             if (sig->isSignalInMessage(frame)) //filter out multiplexed signals that aren't in this message.
             {
@@ -371,7 +372,7 @@ void SignalViewerWindow::loadDefinitions(bool append)
                     QString msgName = QString(tokens[2]);
                     QString sigName = QString(tokens[3]);
                     DBC_MESSAGE *msg;;
-                    if( (msg = dbcHandler->findMessage(msgId)) )
+                    if( (msg = dbcHandler->findMessageWithSignal(msgId, sigName)) )
                     {
                         sig = msg->sigHandler->findSignalByName(sigName);
                         if(sig)
