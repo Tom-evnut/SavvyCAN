@@ -126,6 +126,9 @@ add_executable(TestLdf
     ../dbc/dbchandler.cpp
     ../dbc/dbc_classes.cpp
     ../utility.cpp
+    ../framefileio.cpp  # LIN text logs, decoded with real LDFs
+    ../blfhandler.cpp
+    ../pcaplite.cpp
 )
 
 target_include_directories(TestLdf PRIVATE ${SAVVYCAN_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../dbc)

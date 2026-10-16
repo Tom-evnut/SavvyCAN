@@ -201,6 +201,7 @@ bool FrameFileIO::loadFrameFile(QString &fileName, QVector<CommFrame>* frameCach
     filters.append(QString(tr("Wireshark SocketCAN (*.pcap *.PCAP")));      // 25
     filters.append(QString(tr("IXXAT CSV export (*.csv)")));                // 26
     filters.append(QString(tr("CANWise Log (*.log)")));                     // 27
+    filters.append(QString(tr("LIN text log (*.txt *.TXT)")));              // 28
 
     dialog.setDirectory(settings.value("FileIO/LoadSaveDirectory", dialog.directory().path()).toString());
     dialog.setFileMode(QFileDialog::ExistingFile);
@@ -250,6 +251,7 @@ bool FrameFileIO::loadFrameFile(QString &fileName, QVector<CommFrame>* frameCach
         if (selectedNameFilter == filters[25]) result = loadWiresharkSocketCANFile(filename, frameCache);
         if (selectedNameFilter == filters[26]) result = loadIXXATCsvFile(filename, frameCache);
         if (selectedNameFilter == filters[27]) result = loadCanWise(filename, frameCache);
+        if (selectedNameFilter == filters[28]) result = loadLinTextLog(filename, frameCache);
 
 
         progress.cancel();
@@ -297,6 +299,17 @@ bool FrameFileIO::autoDetectLoadFile(QString filename, QVector<CommFrame>* frame
         if (loadNativeCSVFile(filename, frames))
         {
             qDebug() << "Loaded as native CSV successfully!";
+            return true;
+        }
+    }
+
+    //before the text formats below: its header is checked exactly, and some of them take any .txt file
+    qDebug() << "Attempting LIN text log";
+    if (isLinTextLog(filename))
+    {
+        if (loadLinTextLog(filename, frames))
+        {
+            qDebug() << "Loaded as LIN text log successfully!";
             return true;
         }
     }
@@ -5468,4 +5481,69 @@ bool FrameFileIO::loadCanWise(QString filename, QVector<CommFrame>* frames)
         return false;
     }
     return true;
+}
+
+/*
+LIN text log: a header line, a line of dashes, then one row per frame or bus event:
+     count    timestamp d ID data
+------------------------------------------------------------------------------
+         1    534846693 S 0a ff 11
+         2    534856380 S 2a 09 8f 00 41 32 45 00 00
+         1    613009383 d SLEEP
+Timestamps are microseconds. Frame rows have the LIN ID and the response's data bytes in hex, without the
+checksum; an ID with no data is a header nobody answered. Rows whose ID isn't hex (SLEEP, WAKEUP) are bus events,
+which have no CommFrame equivalent and are skipped.
+*/
+bool FrameFileIO::isLinTextLog(QString filename)
+{
+    QFile inFile(filename);
+    if (!inFile.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    const QByteArray header = inFile.readLine().simplified().toLower();
+    return header == "count timestamp d id data";
+}
+
+bool FrameFileIO::loadLinTextLog(QString filename, QVector<CommFrame>* frames)
+{
+    QFile inFile(filename);
+    if (!inFile.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+
+    int loaded = 0, events = 0, badRows = 0;
+    for (int lineCounter = 0; !inFile.atEnd(); lineCounter++)
+    {
+        if (lineCounter % 100 == 0) qApp->processEvents();
+        const QByteArray line = inFile.readLine().simplified();
+        if (lineCounter == 0 || line.isEmpty() || line.startsWith('-')) continue; //header, dashes, blank
+
+        const QList<QByteArray> tokens = line.split(' ');
+        bool okTime = false, okId = false;
+        if (tokens.size() < 4) { badRows++; continue; }
+        const quint64 timeUs = tokens[1].toULongLong(&okTime);
+        const uint id = tokens[3].toUInt(&okId, 16);
+        if (!okTime) { badRows++; continue; }
+        if (!okId) { events++; continue; } //SLEEP, WAKEUP, ...
+        if (id > 0x3F || tokens.size() - 4 > CommFrame::LIN_MAX_PAYLOAD) { badRows++; continue; }
+
+        QByteArray data;
+        bool okData = true;
+        for (int i = 4; i < tokens.size() && okData; i++)
+        {
+            const uint b = tokens[i].toUInt(&okData, 16);
+            if (b > 0xFF) okData = false;
+            data.append(char(b));
+        }
+        if (!okData) { badRows++; continue; }
+
+        CommFrame frame(CommFrame::LINDataFrame);
+        frame.setFrameId(id);
+        frame.setPayload(data);
+        frame.setBus(0);
+        frame.setReceived(true);
+        frame.setTimeStamp(CommFrame::TimeStamp(0, timeUs));
+        frames->append(frame);
+        loaded++;
+    }
+    qDebug() << "LIN text log:" << loaded << "frames," << events << "bus events skipped," << badRows << "bad rows skipped";
+    return loaded > 0;
 }

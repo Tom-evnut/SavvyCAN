@@ -3,6 +3,7 @@
 #include "ldfparser.h"
 #include "ldftodbc.h"
 #include "dbchandler.h"
+#include "framefileio.h"
 
 // LDF files: the parser (LdfDocument), turning them into DBC classes (LdfToDbc), decoding LIN frames with them,
 // matching messages on frame type (LIN or CAN), and the BusType attribute in DBC files.
@@ -32,6 +33,7 @@ private slots:
     void testDbcBusType();
     void testSaveAsDbc();
     void testRealLdf();
+    void testRealCaptures();
 
 private:
     QString writeFile(const QString &name, const QString &text);
@@ -635,6 +637,58 @@ void TestLdf::testRealLdf()
         qInfo() << name << ":" << doc.frames.size() << "frames," << doc.allSignals.size() << "signals,"
                 << doc.schedules.size() << "schedule tables";
         dumpLayout(file, name);
+    }
+}
+
+// real LIN text logs in the git-ignored test/lin-data/captures, decoded with each real LDF there: every frame of a
+// log that matches an LDF must have a message of its ID and length, and decode every signal
+void TestLdf::testRealCaptures()
+{
+    QDir captures(QStringLiteral(SAVVYCAN_SOURCE_DIR "/test/lin-data/captures"));
+    QDir ldfDir(QStringLiteral(SAVVYCAN_SOURCE_DIR "/test/lin-data/ldf"));
+    QStringList logs;
+    for (const QString &n : captures.entryList({"*.txt"}, QDir::Files))
+        if (FrameFileIO::isLinTextLog(captures.filePath(n))) logs << n;
+    const QStringList ldfs = ldfDir.entryList({"*.ldf"}, QDir::Files);
+    if (logs.isEmpty() || ldfs.isEmpty()) QSKIP("no LIN text logs and LDFs in test/lin-data");
+
+    for (const QString &ldfName : ldfs) {
+        DBCFile ldf;
+        QVERIFY(ldf.loadFile(ldfDir.filePath(ldfName)));
+        for (const QString &logName : logs) {
+            QVector<CommFrame> frames;
+            QVERIFY2(FrameFileIO::loadLinTextLog(captures.filePath(logName), &frames), qPrintable(logName));
+            int matching = 0, decoded = 0;
+            QMap<quint32, int> unknownIds;
+            QSet<quint32> shown;
+            for (const CommFrame &f : frames) {
+                DBC_MESSAGE *msg = ldf.messageHandler->findMsgByID(f.frameId());
+                if (!msg || msg->len != unsigned(f.payload().size())) {
+                    unknownIds[f.frameId()]++;
+                    continue;
+                }
+                matching++;
+                QStringList values;
+                for (DBC_SIGNAL *sig : msg->sigHandler->getSignalsAsList()) {
+                    QString text;
+                    if (sig->isSignalInMessage(f) && sig->processAsText(f, text)) {
+                        decoded++;
+                        values << text;
+                    }
+                }
+                if (!shown.contains(f.frameId())) { // one example per message
+                    shown.insert(f.frameId());
+                    qInfo().noquote() << "   " << msg->name << f.payload().toHex(' ') << "->" << values.join(", ");
+                }
+            }
+            QStringList unknown;
+            for (auto it = unknownIds.constBegin(); it != unknownIds.constEnd(); ++it)
+                unknown << QString("0x%1 x%2").arg(it.key(), 2, 16, QChar('0')).arg(it.value());
+            qInfo().noquote() << logName << "with" << ldfName << ":" << frames.size() << "frames," << matching
+                              << "match the LDF," << decoded << "signal values decoded; other IDs/lengths:"
+                              << (unknown.isEmpty() ? QString("none") : unknown.join(", "));
+            QVERIFY(!frames.isEmpty());
+        }
     }
 }
 

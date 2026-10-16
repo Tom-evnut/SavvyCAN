@@ -17,6 +17,7 @@ private slots:
     void testSummary();
     void testSummaryNoLin();
     void testNativeCsvFile();
+    void testLinTextLog();
 };
 
 static CommFrame linFrame(quint8 id, const QByteArray &data)
@@ -193,6 +194,57 @@ void TestLinFormat::testNativeCsvFile()
     QVERIFY(!in.at(2).hasLinReceivedPid());
     QVERIFY(in.at(3).hasLinChecksumError());
     QVERIFY(!in.at(3).hasLinReceivedPid()); // its PID was fine, so the file didn't keep it
+}
+
+void TestLinFormat::testLinTextLog()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString name = dir.filePath("lin.txt");
+    QFile file(name);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write("     count    timestamp d ID data\n"
+               "------------------------------------------------------------------------------\n"
+               "         1    100000000 d SLEEP\n"
+               "         2    100500000 s WAKEUP\n"
+               "         3    100600000 S 0a ff 11 \n"
+               "         4    100610000 S 2a 09 8f 00 41 32 45 00 00 \n"
+               "         5    100620000 S 3c\n"          // a header nobody answered
+               "         6    100630000 S 40 01\n"       // not a LIN ID
+               "         7    100640000 S 10 zz\n"       // not hex
+               "         8    100650000 S 11 00 01 02 03 04 05 06 07 08\n" // 9 data bytes
+               "         9    100660000 S 3d d0 00 01 0d 00 00 04 00\n"
+               "\n");
+    file.close();
+
+    QVERIFY(FrameFileIO::isLinTextLog(name));
+    QVector<CommFrame> frames;
+    QVERIFY(FrameFileIO::loadLinTextLog(name, &frames));
+    QCOMPARE(frames.size(), 4);
+    QCOMPARE(frames.at(0).frameId(), 0x0Au);
+    QCOMPARE(frames.at(0).payload(), QByteArray::fromHex("ff11"));
+    QCOMPARE(frames.at(0).timeStamp().microSeconds(), 100600000ll);
+    QVERIFY(frames.at(0).isLin());
+    QVERIFY(frames.at(0).isValid());
+    QVERIFY(frames.at(0).isReceived());
+    QVERIFY(!frames.at(0).hasLinChecksum()); // the log has no checksums
+    QCOMPARE(LinFormat::typeLabel(frames.at(0)), QString("L"));
+    QCOMPARE(frames.at(1).payload(), QByteArray::fromHex("098f004132450000"));
+    QVERIFY(frames.at(2).isLinHeaderOnly());
+    QCOMPARE(frames.at(3).frameId(), 0x3Du);
+
+    // auto-detection picks it, and other files aren't taken for it
+    QVector<CommFrame> detected;
+    QVERIFY(FrameFileIO::autoDetectLoadFile(name, &detected));
+    QCOMPARE(detected.size(), 4);
+    QVERIFY(detected.at(0).isLin());
+
+    const QString csv = dir.filePath("other.csv");
+    QFile other(csv);
+    QVERIFY(other.open(QIODevice::WriteOnly | QIODevice::Text));
+    other.write("Time Stamp,ID,Extended,Dir,Bus,LEN,D1,D2,D3,D4,D5,D6,D7,D8\n1000,00000031,false,Rx,0,1,01,00,00,00,00,00,00,00,\n");
+    other.close();
+    QVERIFY(!FrameFileIO::isLinTextLog(csv));
 }
 
 QTEST_MAIN(TestLinFormat)
