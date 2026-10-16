@@ -7,22 +7,42 @@ tested against a real LIN slave module.
 
 ---
 
-## 1. Where LIN stands today
+## 1. Where LIN stands (2026-10-16)
 
-LIN has a frame type and a label, and nothing produces or consumes it.
+Phases 1 to 4 are largely done and the APGDT001 side is confirmed on hardware (BMW E90 HVAC flap motors at
+9600 bit/s: monitoring, header-only polling and frames with data, as master). Everything is merged in `fork-ci-lin`
+(fork-ci plus every LIN branch), which CI builds for Linux and Windows on every push.
 
 | Area | State |
 |---|---|
-| Frame model (`can_structs.h`) | `CommFrame::LINDataFrame` (format `0x3`) exists and round-trips through `setFrameType()` / `frameType()`; it maps to a Qt `DataFrame`. `isDataFrame()` excludes it, so DBC decoding and graphing would skip LIN frames. `isValid()` treats it like classic CAN (any 11-bit ID, up to 8 bytes) |
-| Frame list (`canframemodel.cpp`) | Type column shows `L` |
-| GVRET (`connections/gvretserial.cpp`) | Reads LIN1/LIN2 enable and baud from `GET_EXT_BUSES` (13) and writes them back with opcode 14, but only logs them: only the SWCAN bus is applied. No opcode carries LIN frames |
-| Bus model (`connections/canbus.h`) | CAN only: speed, listen-only, single-wire, CAN FD. No bus type, so a LIN bus can't be represented |
-| Other connections | None produce LIN (QtSerialBus, LAWICEL, socketcand, MQTT, CANserver, CANlogserver, pico-flexray) |
-| Log files (`framefileio.cpp`, `blfhandler.cpp`, `pcaplite.cpp`) | No format reads or writes LIN. BLF skips non-CAN objects |
-| Decoding | No LDF parser. A DBC can't target LIN frames (LIN frames aren't data frames, and DBC messages match on ID and bus only) |
-| Sending, playback, scripts | CAN / CAN FD only |
-| RE tools, protocol handlers | Nothing LIN-specific (no checksum model handling, no LIN transport layer / diagnostics) |
-| Help, FORK-CHANGES | No LIN pages |
+| Frame model | `CommFrame` LIN frames: 6-bit ID, response data, packed `linInfo` (checksum, model, received PID, errors, publisher, device time); PID parity and both checksums (`lin-phase1-model`) |
+| Bus model | Bus type CAN/LIN/FlexRay, LIN mode (monitor/master/slave) and checksum model, saved settings still load (`lin-phase1-model`) |
+| APGDT001 | Monitor and master, confirmed on the device; frames sent one frame slot apart (`lin-phase1-model`, `lin-send`) |
+| PEAK LIN | Monitor and master through PLinApi.dll loaded at run time, Windows only; not tried on a device (`lin-peak`, `lin-send`) |
+| Display | `L` / `LN` / `!` in the frame list, a LIN section in Frame Details; overwrite mode keeps header-only IDs |
+| Decoding | LDF loader into the DBC classes (LIN 1.3 to 2.2A, J2602, event-triggered frames), files matched on frame type, ID-only lookups (graphs, signal viewer, filter labels, Frame Details, file comparator) LIN-aware (`lin-phase2-ldf`, `lin-id-lookup`) |
+| Sending | As master from Send Frames, scripts and playback; LDF schedule tables kept and run by Send Frames > LIN Schedule Runner (`lin-send`, `lin-schedule`) |
+| Log files | Native CSV flags; LIN text logs; Treat Frames as LIN for flag-less captures; BLF save and load (frames, checksum and send errors, receive errors; sleep/wake-up counted); Wireshark pcap/pcapng load and pcapng save; a warning before saving LIN frames to a format that can't mark them (`lin-phase1-model`, `lin-phase2-ldf`, `lin-blf`, `lin-blf-events`, `lin-pcap`, `lin-save-warning`) |
+| RE tools | RE Tools > LIN Schedule Analysis: per-ID period, response rate, checksum models, and the schedule table reconstructed from a capture (`lin-schedule-analysis`) |
+| Not done | Slave mode, node configuration commands in schedules, LIN rows in Send Frames and `lin.sendFrame()`, LIN transport layer / diagnostics, GVRET LIN, PEAK on Linux, ASC LIN |
+
+**Branches** (each merged into `fork-ci-lin`; none is upstream yet):
+
+| Branch | Contains | What |
+|---|---|---|
+| `lin-roadmap` | `fork-ci` | This document |
+| `lin-phase1-model` | `fork-ci` | Frame model, bus type, APGDT001 connection, display, native CSV |
+| `lin-phase2-ldf` | `lin-phase1-model` | LDF loader, matching on frame type, LIN text logs, Treat Frames as LIN |
+| `lin-peak` | `lin-phase1-model` | PEAK LIN connection |
+| `blf-save` | `fork-ci` | BLF saving for CAN and CAN FD, BLF loader fixes (can go upstream on its own) |
+| `lin-blf` | `lin-peak`, `blf-save` | LIN in BLF files |
+| `lin-send` | `lin-blf` | Sending as master (APGDT001, PEAK), send spacing |
+| `lin-schedule` | `lin-send` | LDF schedule tables and the LIN Schedule Runner |
+| `lin-id-lookup` | `lin-phase2-ldf` | LIN-aware lookups where only an ID is known |
+| `lin-save-warning` | `lin-blf` | Asks before saving LIN frames to a format that can't mark them |
+| `lin-pcap` | `lin-save-warning` | Wireshark LIN load, pcapng save, pcaplite fixes |
+| `lin-blf-events` | `lin-blf` | BLF LIN receive errors, sleep and wake-up events |
+| `lin-schedule-analysis` | `lin-phase2-ldf` | RE Tools > LIN Schedule Analysis |
 
 ### LIN basics the design has to carry
 
@@ -77,7 +97,7 @@ their documentation when the work starts:
   the DLL directly); bench testing once a device is available.
 
 **How the APGDT001 talks to a PC.** Worked out from Microchip's *LIN Library API Demo* (Java; library jars read as
-bytecode, not run). Nothing here has been checked against the device yet; the last list says what to confirm.
+bytecode, not run), then checked on the device on 2026-10-16 (see *Confirmed on the device* below).
 
 - **Transport: USB HID**, no vendor driver. The library opens the HID device whose product ID is `0x0A04` (it
   doesn't check the vendor ID; Microchip's is `0x04D8`) and exchanges 64-byte reports, report ID 0 (65 bytes with
@@ -120,11 +140,22 @@ bytecode, not run). Nothing here has been checked against the device yet; the la
   - Errors the library reports per frame: bus timeout (1), timer error (3), status error (4), event marker error
     (5), next header received before the frame finished (6). They map onto `CommFrame`'s LIN error flags
     (no response / incomplete response / sync) once checked on the device.
-- **Still to confirm on the device:** the vendor ID; which of input packets `85`-`87` carries the bus stream; what
-  the rest of the configuration block means (role, autobaud, buffer flushing; only the bit rate is known); the
-  slave-profile layout; whether the timer marker comes before or after the PID; how frames the device sends itself
-  show up in the stream. Method: a USB capture (USBPcap + Wireshark) of Microchip's demo or GUI driving the
-  device on the bench, plus the *LIN Serial Analyzer User's Guide* (DS51675).
+- **Confirmed on the device** (2026-10-16, an APGDT001 driving BMW E90 HVAC flap motors, logged with a raw HID
+  probe and then with SavvyCAN itself):
+  - it enumerates as vendor `0x04D8`, product `0x0A04`, with 65-byte input and output reports;
+  - cold reset, configuration block, warm reset, status request: the status reply echoes all 24 configuration
+    bytes in its `82` packet, at 9600 and 19200 bit/s;
+  - the bus stream comes in `86` packets; each report's packets end at `80`, and the rest of the report is left
+    over from earlier ones (the parser must stop at `80`);
+  - the event timer ticks every 0.409 ms; the cold reset can deliver `14` rollovers buffered since the last session;
+  - the header-only transmit script (`03 05 84 01 <PID> 1F 77`) sends a header and the slaves answer it; frames
+    with data go out too;
+  - in the stream, the script status (`1C 77`) comes before the device's own PID byte;
+  - **the device starts each transmit script at once**, even while a slave is still answering: headers sent back to
+    back went out 4 ms apart at 9600 bit/s and nobody answered. SavvyCAN spaces them one frame slot apart;
+  - slaves that have been quiet go to sleep and don't answer the first header (it wakes them).
+- **Still open:** the rest of the configuration block (role, autobaud); the slave profile layout (CBUF3) for slave
+  mode; what `85` and `87` packets carry; how the library's per-frame errors show in the stream.
 - **Licence:** Microchip's demo and library may only be used with Microchip products. SavvyCAN's connection must be
   written from the protocol as described here, not ported from Microchip's code, and none of their files go into
   the repository (they stay in the git-ignored `test/lin-data/apgdt001/`).
@@ -178,6 +209,8 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 1: receive and display (monitor mode)
 
+**Status: done** except GVRET; the APGDT001 is confirmed on the device, PEAK hasn't been tried on one.
+
 - **Model:** the D2 frame semantics and metadata (on top of the shared metadata design), `isValid()`,
   `isDataFrame()`, PID parity and both checksum models as helpers with unit tests.
 - **Bus type:** D3, with LIN buses shown in the connection window (speed, mode read-only at first).
@@ -189,7 +222,7 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
   USB code, as `picoflexrayparser` is, so the mock and the tests can feed it bytes. *Done on `lin-phase1-model`
   (monitor mode, not yet tried on a device): `connections/apgdt001parser.*` (receive stream),
   `apgdt001session.*` (commands, configuration check, quiet-bus flush) and `apgdt001.*` (hidapi), with unit tests
-  for the first two. The LIN bus type and settings (D3) are done too.*
+  for the first two. The LIN bus type and settings (D3) are done too. Confirmed on the device 2026-10-16.*
 - **PEAK LIN connection (after the APGDT001, separate branch):** "PEAK LIN (PLIN-USB, PCAN-USB Pro / Pro FD)",
   monitor mode first: PLIN-API loaded at run time on Windows, PEAK's LIN driver on Linux, one LIN bus per channel,
   device timestamps and error flags mapped onto `CommFrame`'s LIN details (D1).
@@ -205,6 +238,8 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 2: decoding
 
+**Status: done** except LDF save/export (optional) and the BCD/ASCII encodings (shown as raw values). Checked against python `ldfparser` on real LDFs, and real captures decode.
+
 - **LDF loader** (D4) in the DBC manager: LIN 2.0-2.2 and J2602 first, LIN 1.3 where cheap (LIN 1.x frame length
   comes from ID bits 4-5). Signals are little-endian, LSB first; logical and physical encodings map onto value
   tables and factor/offset.
@@ -215,6 +250,8 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 - **Done when:** a capture decodes against a real LDF (and against a converted DBC) with no CAN/LIN cross-matches.
 
 ### Phase 3: sending
+
+**Status: master mode done** on the APGDT001 (confirmed on the device) and PEAK (untested), from Send Frames, scripts and playback, and LDF schedule tables run by the LIN Schedule Runner (`lin-schedule`). **Not done:** slave mode (APGDT001 slave profiles, PEAK publisher frame entries), node configuration commands (AssignNAD and the others) and sporadic frames in schedules, LIN rows in Send Frames, `lin.sendFrame()`, PEAK schedules in the device, playback as a slave responder only, GVRET.
 
 - **APGDT001:** master mode (header, or header + response) and slave mode (respond to a given ID with given data and
   checksum model), using its host and slave roles. Bus mode settable from SavvyCAN.
@@ -231,6 +268,8 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 4: log file interoperability
 
+**Status: done for BLF and Wireshark** (load and save; checked with python-can and tshark 4.4), plus native CSV and LIN text logs. **ASC LIN is blocked** until there's a sample file or Vector's format document.
+
 - **Vector ASC** LIN lines and **BLF** LIN objects (frames and the main error objects), load first, ASC save after.
 - **Wireshark pcap** with the LIN link type.
 - Other formats only where a user shows up with files (most CAN-only formats have no LIN representation).
@@ -238,6 +277,8 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
   cross-checked against a reference tool in the test bench.
 
 ### Phase 5: reverse-engineering and diagnostics
+
+**Status: started.** Checksum model per ID (Frame Details) and schedule reconstruction (RE Tools > LIN Schedule Analysis, `lin-schedule-analysis`) are done. **Not done:** the LIN transport layer and diagnostics, UDS over LIN, and LIN in the sniffer, bit-flip, range state and fuzzing tools.
 
 - **Checksum model detection:** per ID, report classic vs enhanced from captured responses (a quick hint about
   LIN version and node generation).
@@ -266,6 +307,9 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
   against an independent LDF parser (e.g. Python `ldfparser`).
 - Log file cross-checks (ASC, BLF, pcap) against python-can or the vendor tool output, as for CAN FD.
 - Hardware: the APGDT001 and the bench slave module, before each phase is marked done.
+- **Done so far:** unit tests for every piece above (in `unit_tests/`, run under AddressSanitizer with leak
+  detection); BLF CAN/CAN FD checked both ways with python-can 4.6; BLF and pcapng LIN checked with tshark 4.4.19;
+  LDF layouts identical to python `ldfparser`; the APGDT001 on the bench (monitor, polling, data frames).
 
 ---
 
@@ -273,9 +317,9 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 - **`CommFrame` metadata** is the change everything rides on. `linInfo` follows `flexRayInfo`'s pattern (D2), so
   merging the two branches only conflicts textually in `can_structs.h`.
-- **APGDT001 protocol:** worked out from Microchip's demo library, not from a specification, so each point gets
-  checked with a USB capture before code depends on it (D1 lists the open ones). It's plain HID, so no closed driver
-  or DLL is needed on any platform.
+- **APGDT001 protocol:** worked out from Microchip's demo library, not from a specification; monitoring and master
+  mode are now confirmed on the device (D1), slave mode isn't. It's plain HID, so no closed driver or DLL is needed
+  on any platform.
 - **APGDT001 limits:** 0.409 ms timestamps; frames delimited by the host (next break, length or timeout), so a
   response cut short by a timeout can't always be told from a shorter frame.
 - **Microchip's licence:** their demo and library are used only to learn the protocol; nothing of theirs is copied
@@ -290,14 +334,15 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ---
 
-## 6. Suggested sequencing
+## 6. Next steps
 
-1. Phase 0: D1 and D2 are decided and the APGDT001 protocol is mostly known (D1); confirm the open points with a
-   USB capture on the bench, and settle D3/D4.
-2. Phase 1, in this order: the `CommFrame` LIN model and its unit tests (no hardware needed), the bus type, the
-   APGDT001 connection, then the frame list and native CSV.
-3. Phase 2 (LDF and decoding).
-4. The PEAK LIN connection, in monitor mode, once a PEAK LIN device is on the bench (needs the bus type from
-   phase 1; its unit tests can come earlier, against a fake backend).
-5. Phase 3 (sending) and phase 4 (log files) are independent; run them in parallel once phase 2 lands.
-6. Phase 5 accelerators last, on top of real captures.
+1. Bench: run the LIN Schedule Runner against the BMW flap motors (`test/lin-data/ldf/BMW_HVAC_Flap_Motors.ldf`):
+   polling, then Set_Position and Move_To_Position. That's phase 3's "done when".
+2. LIN rows in Send Frames (checksum model per row, one-off frames) and editing master frame data by signal in the
+   schedule runner.
+3. Slave mode: APGDT001 slave profiles (needs the CBUF3 layout, from a USB capture of Microchip's GUI), PEAK
+   publisher frame entries.
+4. Node configuration commands in schedules (AssignNAD, ConditionalChangeNAD, ...), then the LIN transport layer
+   and diagnostics (phase 5).
+5. PEAK on a device, then PEAK on Linux; GVRET LIN with the ESP32RET firmware; ASC LIN when there's a sample.
+6. Offer the generic pieces upstream: `blf-save` first, then the frame model, bus type and LDF loader.
