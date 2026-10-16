@@ -460,6 +460,15 @@ void TestLdf::testLoadAsDbc()
     QCOMPARE(req->len, 8u);
     QCOMPARE(req->sender->name, QString("BCM"));
     QVERIFY(file.messageHandler->findMsgByID(0x11)->comment.contains("sporadic frame CmdSporadic"));
+
+    // interpreted rows in the frame list use these: the palette's colours, as for DBC files (invalid shows black)
+    for (DBC_MESSAGE *msg : file.messageHandler->getMsgsAsList()) {
+        QVERIFY2(msg->bgColor.isValid() && msg->fgColor.isValid(), qPrintable(msg->name));
+        QCOMPARE(msg->bgColor, QApplication::palette().color(QPalette::Base));
+        QCOMPARE(msg->fgColor, QApplication::palette().color(QPalette::WindowText));
+    }
+    QVERIFY(file.findAttributeByName("GenMsgBackgroundColor", ATTR_TYPE_MESSAGE));
+    QVERIFY(file.findAttributeByName("GenMsgForegroundColor", ATTR_TYPE_MESSAGE));
 }
 
 void TestLdf::testDecode()
@@ -607,6 +616,8 @@ void TestLdf::testSaveAsDbc()
             QCOMPARE(o->isMultiplexor, sig->isMultiplexor);
             QCOMPARE(o->isMultiplexed, sig->isMultiplexed);
         }
+        QCOMPARE(other->bgColor, msg->bgColor);
+        QCOMPARE(other->fgColor, msg->fgColor);
     }
 }
 

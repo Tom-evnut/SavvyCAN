@@ -1,3 +1,5 @@
+#include <QApplication>
+#include <QPalette>
 #include <QtMath>
 #include "ldftodbc.h"
 #include "dbchandler.h"
@@ -13,6 +15,19 @@ void addGeneralAttribute(DBCFile *file, const QString &name, DBC_ATTRIBUTE_VAL_T
     attr.lower = 0;
     attr.upper = type == ATTR_INT ? 1000000 : 0;
     attr.defaultValue = value;
+    file->dbc_attributes.append(attr);
+}
+
+//the message colour attributes DBCFile::loadFile() adds to every DBC file, with the same defaults
+void addColorAttribute(DBCFile *file, const QString &name, const QColor &color)
+{
+    DBC_ATTRIBUTE attr;
+    attr.name = name;
+    attr.attrType = ATTR_TYPE_MESSAGE;
+    attr.valType = ATTR_STRING;
+    attr.lower = 0;
+    attr.upper = 0;
+    attr.defaultValue = color.name();
     file->dbc_attributes.append(attr);
 }
 
@@ -133,6 +148,11 @@ void LdfToDbc::fill(const LdfDocument &doc, DBCFile *file, QStringList *warnings
     addGeneralAttribute(file, "BusType", ATTR_STRING, QString("LIN"));
     if (!doc.protocolVersion.isEmpty()) addGeneralAttribute(file, "LIN_protocol_version", ATTR_STRING, doc.protocolVersion);
     if (doc.speedBps > 0) addGeneralAttribute(file, "LIN_speed", ATTR_INT, int(doc.speedBps + 0.5));
+    //interpreted rows in the frame list take their message's colours: without these they'd be invalid (black)
+    const QColor background = QApplication::palette().color(QPalette::Base);
+    const QColor foreground = QApplication::palette().color(QPalette::WindowText);
+    addColorAttribute(file, "GenMsgBackgroundColor", background);
+    addColorAttribute(file, "GenMsgForegroundColor", foreground);
 
     //nodes: the default first, as DBC files get it
     addNode(file, "Vector__XXX", "Default node if none specified");
@@ -244,5 +264,11 @@ void LdfToDbc::fill(const LdfDocument &doc, DBCFile *file, QStringList *warnings
         }
         msg->len = len;
         file->messageHandler->addMessage(msg);
+    }
+
+    for (DBC_MESSAGE *msg : file->messageHandler->getMsgsAsList())
+    {
+        msg->bgColor = background;
+        msg->fgColor = foreground;
     }
 }
