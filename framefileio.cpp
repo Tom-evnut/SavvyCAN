@@ -2194,7 +2194,9 @@ bool FrameFileIO::isCanalyzerBLF(QString filename)
 bool FrameFileIO::loadCanalyzerBLF(QString filename, QVector<CommFrame> *frames)
 {
     BLFHandler blf;
-    return blf.loadBLF(filename, frames);
+    const bool ok = blf.loadBLF(filename, frames);
+    if (blf.linEvents()) qDebug() << "BLF:" << blf.linEvents() << "LIN sleep and wake-up events (not frames) skipped";
+    return ok;
 }
 
 bool FrameFileIO::saveCanalyzerBLF(QString filename, const QVector<CommFrame> *frames)

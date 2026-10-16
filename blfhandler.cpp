@@ -51,10 +51,45 @@ static CommFrame linFrameFrom(int channel, quint8 id, const QByteArray &data, qu
     return frame;
 }
 
-//LIN objects in a container; false if objType isn't one of them (or it's too short to be)
-static bool readLinObject(quint32 objType, const QByteArray &d, quint64 ns, QVector<CommFrame> *frames)
+//a receive error: Vector's tools don't say which error it was in a way SavvyCAN can map (Wireshark shows them as
+//framing errors too), except a response that ended early
+static void markReceiveError(CommFrame &frame, bool shortResponse)
+{
+    frame.setLinErrors(quint8(CommFrame::LinErrFraming | (shortResponse ? CommFrame::LinErrIncompleteResponse : 0)));
+}
+
+//LIN objects in a container; false if objType isn't one of them (or it's too short to be). Sleep and wake-up
+//events have no frame: they're counted in events.
+static bool readLinObject(quint32 objType, const QByteArray &d, quint64 ns, QVector<CommFrame> *frames, int *events)
 {
     switch (objType) {
+    case BLF_LIN_RCV_ERROR2: //prefix, data[8], FSM ID and state, state reason, offending byte, short error,
+                             //timeout during DLC detection, event-triggered frame, has data bytes
+    {
+        if (d.size() < BLF_LIN_PREFIX_SIZE + 16) return false;
+        const bool hasData = d.at(BLF_LIN_PREFIX_SIZE + 15) != 0;
+        const int dlc = hasData ? qMin(int(quint8(d.at(38))), 8) : 0;
+        CommFrame frame = linFrameFrom(le16At(d, 12), quint8(d.at(37)), d.mid(BLF_LIN_PREFIX_SIZE, dlc), 0,
+                                       BLF_LIN_MODEL_UNKNOWN, false, true, ns);
+        markReceiveError(frame, d.at(BLF_LIN_PREFIX_SIZE + 12) != 0);
+        frames->append(frame);
+        return true;
+    }
+    case BLF_LIN_RCV_ERROR: //legacy: channel, ID, DLC, FSM ID and state, header and full time, state reason,
+                            //offending byte, short error, timeout during DLC detection
+    {
+        if (d.size() < 12) return false;
+        CommFrame frame = linFrameFrom(le16At(d, 0), quint8(d.at(2)), QByteArray(), 0, BLF_LIN_MODEL_UNKNOWN, false,
+                                       true, ns);
+        markReceiveError(frame, d.at(10) != 0);
+        frames->append(frame);
+        return true;
+    }
+    case BLF_LIN_SLEEP:
+    case BLF_LIN_WAKEUP:
+    case BLF_LIN_WAKEUP2:
+        if (events) (*events)++;
+        return true;
     case BLF_LIN_MESSAGE2:
     case BLF_LIN_CRC_ERROR2:
     {
@@ -114,6 +149,7 @@ bool BLFHandler::loadBLF(QString filename, QVector<CommFrame>* frames)
     BLF_CAN_OBJ canObject;
     BLF_CAN_OBJ2 canObject2;
 
+    mLinEvents = 0;
     QFile inFile(filename);
 
     if (!inFile.open(QIODevice::ReadOnly))
@@ -287,7 +323,7 @@ bool BLFHandler::loadBLF(QString filename, QVector<CommFrame>* frames)
                             frame.setTimeStamp(CommFrame::TimeStamp(0, qRound64(obj.header.v1Obj.uncompSize / 1000.0)));
                             frames->append(frame);
                         }
-                        else if (readLinObject(obj.header.base.objType, fileData, obj.header.v1Obj.uncompSize, frames))
+                        else if (readLinObject(obj.header.base.objType, fileData, obj.header.v1Obj.uncompSize, frames, &mLinEvents))
                         {
                             //LIN frame read
                         }
@@ -436,12 +472,34 @@ void putLinPrefix(QByteArray &d, const CommFrame &frame, quint64 ns, int dlc, bo
         for (int i = 0; i < 9; i++) put64(d, ns);
 }
 
-//LIN_MESSAGE2, LIN_CRC_ERROR2 (wrong checksum) or LIN_SND_ERROR2 (no response); 152, 152 and 72 bytes
+//LIN_MESSAGE2, LIN_CRC_ERROR2 (wrong checksum), LIN_SND_ERROR2 (no response) or LIN_RCV_ERROR2 (any other error
+//the device reported, and parity errors); 152, 152, 72 and 152 bytes
 void writeLinObject(BlfWriter &writer, const CommFrame &frame, quint64 ns)
 {
     QByteArray d;
     const QByteArray payload = frame.payload().left(8);
     const quint8 dir = frame.isReceived() ? 0 : 1; //1: sent ("Tx receipt")
+    const quint8 receiveErrors = frame.linErrors() & ~quint8(CommFrame::LinErrNoResponse);
+    if (receiveErrors || frame.hasLinParityError())
+    {
+        QByteArray data = payload;
+        data.append(QByteArray(8 - data.size(), '\0'));
+        putLinPrefix(d, frame, ns, int(payload.size()), true);
+        d.append(data);
+        put8(d, 0); put8(d, 0);   //FSM ID and state
+        put8(d, 0);               //state reason
+        put8(d, 0);               //offending byte
+        put8(d, (frame.linErrors() & CommFrame::LinErrIncompleteResponse) ? 1 : 0); //short error
+        put8(d, 0);               //no timeout during DLC detection
+        put8(d, 0);               //not an event-triggered frame
+        put8(d, payload.isEmpty() ? 0 : 1); //has data bytes
+        put32(d, 0);              //response bit rate
+        put32(d, 0);
+        put64(d, 0);              //exact header bit rate
+        put32(d, 0); put32(d, 0); //early stop bit offsets
+        writer.add(BLF_LIN_RCV_ERROR2, d, ns, 1);
+        return;
+    }
     if (payload.isEmpty())
     {
         putLinPrefix(d, frame, ns, 0, false);
