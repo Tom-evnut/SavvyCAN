@@ -21,6 +21,7 @@ private slots:
     void testRunnerCycles();
     void testRunnerData();
     void testSendingKeepsScheduleChecksum();
+    void testSignalValues();
 };
 
 static const char *LDF = R"(
@@ -327,6 +328,67 @@ void TestLinSchedule::testSendingKeepsScheduleChecksum()
     QVERIFY(LinFormat::toLinForSending(LinScheduleRunner::frameFor(slot, QByteArray(), CommFrame::LinChecksumClassic, 0),
                                        CommFrame::LinChecksumEnhanced, out));
     QVERIFY(out.payload().isEmpty());
+}
+
+// setting signals from typed values (the runner's signal editor)
+void TestLinSchedule::testSignalValues()
+{
+    // the BMW flap motors' move command: address (8 bits, value table), position (16 bits), speed (8 bits)
+    LinSignal::Spec address;
+    address.startBit = 0;
+    address.size = 8;
+    address.values = {{0x21, "Motor 1"}, {0x22, "Motor 2"}};
+    LinSignal::Spec position;
+    position.startBit = 8;
+    position.size = 16;
+    QByteArray data = QByteArray::fromHex("2100C005");
+    QCOMPARE(LinSignal::rawValue(data, address), qint64(0x21));
+    QCOMPARE(LinSignal::rawValue(data, position), qint64(0xC000));
+
+    quint64 raw = 0;
+    QString why;
+    QVERIFY(LinSignal::rawFromText("motor 2", address, raw)); // value table names, any case
+    QCOMPARE(raw, quint64(0x22));
+    QVERIFY(LinSignal::rawFromText("0xBD1E", position, raw)); // raw in hex
+    QCOMPARE(raw, quint64(0xBD1E));
+    LinScheduleSet::putBits(data, position.startBit, position.size, raw);
+    QCOMPARE(data, QByteArray::fromHex("211EBD05"));
+    QVERIFY(LinSignal::rawFromText("48384", position, raw)); // a physical value, factor 1
+    QCOMPARE(raw, quint64(48384));
+    QVERIFY(!LinSignal::rawFromText("0x10000", position, raw, &why)); // too big for 16 bits
+    QVERIFY(!why.isEmpty());
+    QVERIFY(!LinSignal::rawFromText("70000", position, raw, &why));
+    QVERIFY(!LinSignal::rawFromText("Motor 9", address, raw, &why)); // not a value or a number
+    QVERIFY(!LinSignal::rawFromText("  ", address, raw, &why));
+
+    // scaled: 0.5 per bit, -40 offset (a temperature)
+    LinSignal::Spec temp;
+    temp.startBit = 4;
+    temp.size = 8;
+    temp.factor = 0.5;
+    temp.bias = -40;
+    QVERIFY(LinSignal::rawFromText("21.5", temp, raw));
+    QCOMPARE(raw, quint64(123));
+    QVERIFY(LinSignal::rawFromText("-40", temp, raw));
+    QCOMPARE(raw, quint64(0));
+    QVERIFY(!LinSignal::rawFromText("-41", temp, raw)); // below the raw range
+    QByteArray t(2, char(0xFF));
+    QVERIFY(LinSignal::rawFromText("21.5", temp, raw));
+    LinScheduleSet::putBits(t, temp.startBit, temp.size, raw);
+    QCOMPARE(t, QByteArray::fromHex("BFF7")); // 123 = 0x7B at bit 4, the other bits untouched
+    QCOMPARE(LinSignal::rawValue(t, temp), qint64(123));
+
+    // signed: two's complement in the signal's size
+    LinSignal::Spec offset;
+    offset.size = 6;
+    offset.isSigned = true;
+    QVERIFY(LinSignal::rawFromText("-3", offset, raw));
+    QCOMPARE(raw, quint64(0x3D));
+    QVERIFY(!LinSignal::rawFromText("32", offset, raw)); // -32..31
+    QVERIFY(LinSignal::rawFromText("-32", offset, raw));
+    QByteArray o(1, '\0');
+    LinScheduleSet::putBits(o, 0, 6, 0x3D);
+    QCOMPARE(LinSignal::rawValue(o, offset), qint64(-3));
 }
 
 QTEST_MAIN(TestLinSchedule)

@@ -12,11 +12,12 @@ class QPushButton;
 class QSpinBox;
 class QTableWidget;
 class DBCFile;
+class DBC_SIGNAL;
 
 /*
  * Send Frames > LIN Schedule Runner: runs a schedule table of a loaded LDF as the LIN master on one bus. The bus's
- * connection has to be in master mode. Frames the master publishes can be given other data while the schedule runs;
- * see help/linschedulerunner.md.
+ * connection has to be in master mode. Frames the master publishes can be given other data while the schedule runs,
+ * as hex bytes or signal by signal (from the LDF's signals); see help/linschedulerunner.md.
  */
 class LinScheduleWindow : public QDialog
 {
@@ -39,13 +40,18 @@ private slots:
     void sendDue();
     void showStatus();
     void cellChanged(int row, int column);
+    void showSignals();
+    void signalChanged(int row, int column);
 
 private:
     enum Column { COL_SLOT, COL_FRAME, COL_ID, COL_SENDS, COL_DELAY, COL_DATA, COL_COUNT };
+    enum SignalColumn { SIG_NAME, SIG_VALUE, SIG_RAW, SIG_VALUES, SIG_COUNT };
 
     DBCFile *currentFile() const;
     void fillTable();
     void stopRunning();
+    void showData(const QString &frameName); //in every row that sends that frame
+    QList<DBC_SIGNAL *> signalsOfRow(int row) const;
     void markSlot(int row);
     qint64 nowUs() const { return mClock.nsecsElapsed() / 1000; }
 
@@ -56,6 +62,9 @@ private:
     QPushButton *mStartStop;
     QLabel *mStatus;
     QTableWidget *mTable;
+    QLabel *mSignalsLabel;
+    QTableWidget *mSignals;
+    int mSignalRow = -1; //the schedule row whose signals are shown
 
     LinScheduleRunner mRunner;
     QTimer mSendTimer;

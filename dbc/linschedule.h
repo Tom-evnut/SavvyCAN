@@ -59,4 +59,32 @@ struct LinScheduleSet
     static void putBits(QByteArray &data, int offset, int size, quint64 value);
 };
 
+/*
+ * Setting a signal in a LIN frame's data from what someone types: the LIN Schedule Runner's signal editor. LIN signals
+ * are little-endian, least significant bit first, at a bit offset.
+ */
+namespace LinSignal {
+
+struct Spec
+{
+    int startBit = 0;
+    int size = 8;
+    double factor = 1;
+    double bias = 0;
+    bool isSigned = false;
+    QList<QPair<qint64, QString>> values; //value table: raw value, name
+};
+
+//the raw value at startBit (size bits; sign-extended if isSigned)
+qint64 rawValue(const QByteArray &data, const Spec &spec);
+
+/*
+ * The raw value for text: a value table name ("Unlock"), a raw value in hex ("0xBD00"), or a physical value
+ * ("12.5": raw = (value - bias) / factor, rounded). False (with why) if it's none of those or doesn't fit in the
+ * signal; a signed value comes back as its two's complement in size bits.
+ */
+bool rawFromText(const QString &text, const Spec &spec, quint64 &raw, QString *why = nullptr);
+
+}
+
 #endif // LINSCHEDULE_H

@@ -1,5 +1,68 @@
 #include "linschedule.h"
 #include "ldfparser.h"
+#include <cmath>
+
+qint64 LinSignal::rawValue(const QByteArray &data, const Spec &spec)
+{
+    quint64 raw = 0;
+    for (int bit = 0; bit < spec.size && bit < 64; bit++)
+    {
+        const int pos = spec.startBit + bit;
+        if (pos < 0 || pos / 8 >= data.size()) break;
+        if ((quint8(data.at(pos / 8)) >> (pos % 8)) & 1) raw |= quint64(1) << bit;
+    }
+    if (spec.isSigned && spec.size > 0 && spec.size < 64 && (raw >> (spec.size - 1)) & 1)
+        return qint64(raw) - (qint64(1) << spec.size);
+    return qint64(raw);
+}
+
+bool LinSignal::rawFromText(const QString &text, const Spec &spec, quint64 &raw, QString *why)
+{
+    const QString t = text.trimmed();
+    if (t.isEmpty())
+    {
+        if (why) *why = "no value";
+        return false;
+    }
+    for (const auto &v : spec.values)
+        if (!v.second.isEmpty() && v.second.compare(t, Qt::CaseInsensitive) == 0)
+        {
+            raw = quint64(v.first);
+            return true;
+        }
+
+    const int size = qBound(1, spec.size, 64);
+    const qint64 minRaw = spec.isSigned ? (size >= 64 ? INT64_MIN : -(qint64(1) << (size - 1))) : 0;
+    const quint64 maxRaw = spec.isSigned ? (size >= 64 ? quint64(INT64_MAX) : (quint64(1) << (size - 1)) - 1)
+                                         : (size >= 64 ? ~quint64(0) : (quint64(1) << size) - 1);
+    bool ok = false;
+    if (t.startsWith("0x", Qt::CaseInsensitive))
+    {
+        const quint64 value = t.mid(2).toULongLong(&ok, 16);
+        if (!ok || (size < 64 && value > ((quint64(1) << size) - 1)))
+        {
+            if (why) *why = QString("%1 isn't a raw value of %2 bits").arg(t).arg(size);
+            return false;
+        }
+        raw = value;
+        return true;
+    }
+    const double physical = t.toDouble(&ok);
+    if (!ok || spec.factor == 0)
+    {
+        if (why) *why = QString("%1 isn't a number or one of the signal's values").arg(t);
+        return false;
+    }
+    const double scaled = std::round((physical - spec.bias) / spec.factor);
+    if (scaled < double(minRaw) || scaled > double(maxRaw))
+    {
+        if (why) *why = QString("%1 is out of the signal's range").arg(t);
+        return false;
+    }
+    const qint64 value = qint64(scaled);
+    raw = size >= 64 ? quint64(value) : (quint64(value) & ((quint64(1) << size) - 1));
+    return true;
+}
 
 double LinSchedule::cycleMs() const
 {
