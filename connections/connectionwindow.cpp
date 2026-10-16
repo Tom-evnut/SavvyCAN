@@ -64,18 +64,19 @@ ConnectionWindow::ConnectionWindow(QWidget *parent) :
     connect(ui->btnMoveDown, &QPushButton::clicked, this, &ConnectionWindow::moveConnDown);
 
 
-    ui->cbBusSpeed->addItem("33333");
-    ui->cbBusSpeed->addItem("50000");
-    ui->cbBusSpeed->addItem("83333");
-    ui->cbBusSpeed->addItem("100000");
-    ui->cbBusSpeed->addItem("125000");
-    ui->cbBusSpeed->addItem("250000");
-    ui->cbBusSpeed->addItem("500000");
-    ui->cbBusSpeed->addItem("1000000");
-    //ui->cbBusSpeed->addItem("75000");
-    //ui->cbBusSpeed->addItem("166666");
-    //ui->cbBusSpeed->addItem("233333");
-    //ui->cbBusSpeed->addItem("400000");
+    fillBusSpeeds(false);
+
+    //LIN buses: the item data is the CANBus::LinMode / CommFrame::LinChecksumModel value
+    ui->cbLinMode->addItem(tr("Monitor (listen only)"), int(CANBus::LinMode::Monitor));
+    ui->cbLinMode->addItem(tr("Master"), int(CANBus::LinMode::Master));
+    ui->cbLinMode->addItem(tr("Slave"), int(CANBus::LinMode::Slave));
+    ui->cbLinChecksum->addItem(tr("Per ID, as received"), int(CommFrame::LinChecksumUnknown));
+    ui->cbLinChecksum->addItem(tr("Classic (LIN 1.x)"), int(CommFrame::LinChecksumClassic));
+    ui->cbLinChecksum->addItem(tr("Enhanced (LIN 2.x)"), int(CommFrame::LinChecksumEnhanced));
+    ui->cbLinMode->setVisible(false); //shown for LIN buses (populateBusDetails)
+    ui->linMode_label->setVisible(false);
+    ui->cbLinChecksum->setVisible(false);
+    ui->linChecksum_label->setVisible(false);
 
     //CAN FD data phase rates (the list used to be empty apart from the bus's current rate)
     ui->cbDataRate->addItem("1000000");
@@ -342,7 +343,7 @@ void ConnectionWindow::handleResetConn()
     // For multi-bus devices this grabs bus 0; better than zeroing it out.
     bool listenOnly = false;
     bool active = true;
-    CANBus bus;
+    CANBus bus; //defaults for the LIN settings if the bus isn't configured
     if (conn_p->getBusSettings(0, bus))
     {
         busSpeed = bus.getSpeed();
@@ -364,7 +365,8 @@ void ConnectionWindow::handleResetConn()
 
     conn_p = nullptr;
 
-    conn_p = create(type, port, driver, serSpeed, busSpeed, canFd, dataRate, listenOnly, active);
+    conn_p = create(type, port, driver, serSpeed, busSpeed, canFd, dataRate, listenOnly, active,
+                    bus.getLinMode(), bus.getLinChecksumModel());
     if (conn_p) {
         connModel->replace(selIdx, conn_p);
     }
@@ -415,9 +417,18 @@ void ConnectionWindow::saveBusSettings()
 
         bus.setSpeed(ui->cbBusSpeed->currentText().toInt());
         bus.setActive(ui->ckEnable->isChecked());
-        bus.setListenOnly(ui->ckListenOnly->isChecked());
-        bus.setCanFD(ui->canFDEnable->isChecked());
-        bus.setDataRate(ui->cbDataRate->currentText().toInt());
+        if (bus.isLin())
+        {
+            bus.setLinMode(CANBus::LinMode(ui->cbLinMode->currentData().toInt()));
+            bus.setLinChecksumModel(CommFrame::LinChecksumModel(ui->cbLinChecksum->currentData().toInt()));
+            bus.setListenOnly(bus.getLinMode() == CANBus::LinMode::Monitor); //for code that only knows listen only
+        }
+        else
+        {
+            bus.setListenOnly(ui->ckListenOnly->isChecked());
+            bus.setCanFD(ui->canFDEnable->isChecked());
+            bus.setDataRate(ui->cbDataRate->currentText().toInt());
+        }
 
         /* Persist last SerialBus settings so new connections start with them */
         if (conn_p->getType() == CANCon::SERIALBUS) {
@@ -461,10 +472,23 @@ void ConnectionWindow::populateBusDetails(int offset)
 
         //int busBase = CANConManager::getInstance()->getBusBase(conn_p);
         //ui->lblBusNum->setText(QString::number(busBase + offset));
+        const bool lin = bus.isLin();
+        fillBusSpeeds(lin);
+        ui->ckListenOnly->setVisible(!lin); //a LIN bus's mode says whether it only listens
+        ui->listenOnly_label->setVisible(!lin);
+        ui->cbLinMode->setVisible(lin);
+        ui->linMode_label->setVisible(lin);
+        ui->cbLinChecksum->setVisible(lin);
+        ui->linChecksum_label->setVisible(lin);
+        if (lin)
+        {
+            ui->cbLinMode->setCurrentIndex(qMax(0, ui->cbLinMode->findData(int(bus.getLinMode()))));
+            ui->cbLinChecksum->setCurrentIndex(qMax(0, ui->cbLinChecksum->findData(int(bus.getLinChecksumModel()))));
+        }
         ui->ckListenOnly->setChecked(bus.isListenOnly());
         ui->ckEnable->setChecked(bus.isActive());
-        if (conn_p->getType() == CANCon::type::SERIALBUS || conn_p->getType() == CANCon::type::LAWICEL ||
-            bus.isCanFDCapable()) //GVRET: the device said this bus can do CAN FD (GET_FD reply)
+        if (!lin && (conn_p->getType() == CANCon::type::SERIALBUS || conn_p->getType() == CANCon::type::LAWICEL ||
+            bus.isCanFDCapable())) //GVRET: the device said this bus can do CAN FD (GET_FD reply)
         {
             ui->canFDEnable->setVisible(true);
             ui->canFDEnable_label->setVisible(true);
@@ -497,6 +521,19 @@ void ConnectionWindow::populateBusDetails(int offset)
         }
         if (!found) ui->cbDataRate->addItem(QString::number(bus.getDataRate()));
     }
+}
+
+//CAN or LIN bit rates for the speed list (a bus's own speed is added by populateBusDetails if it isn't listed)
+void ConnectionWindow::fillBusSpeeds(bool lin)
+{
+    static const QList<int> canSpeeds = {33333, 50000, 83333, 100000, 125000, 250000, 500000, 1000000};
+    static const QList<int> linSpeeds = {2400, 9600, 10417, 19200, 20000};
+    const QList<int> &speeds = lin ? linSpeeds : canSpeeds;
+    if (ui->cbBusSpeed->count() >= speeds.size() && ui->cbBusSpeed->itemText(0).toInt() == speeds.first())
+        return; //already the right list
+    ui->cbBusSpeed->clear();
+    for (int speed : speeds)
+        ui->cbBusSpeed->addItem(QString::number(speed));
 }
 
 void ConnectionWindow::currentTabChanged(int newIdx)
@@ -570,7 +607,8 @@ void ConnectionWindow::handleSendText() {
     emit sendDebugData(bytes);
 }
 
-CANConnection* ConnectionWindow::create(CANCon::type pTye, QString pPortName, QString pDriver, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly, bool pActive)
+CANConnection* ConnectionWindow::create(CANCon::type pTye, QString pPortName, QString pDriver, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly, bool pActive,
+                                        CANBus::LinMode pLinMode, CommFrame::LinChecksumModel pLinChecksum)
 {
     CANConnection* conn_p = nullptr;
 
@@ -578,6 +616,8 @@ CANConnection* ConnectionWindow::create(CANCon::type pTye, QString pPortName, QS
     conn_p = CanConFactory::create(pTye, pPortName, pDriver, pSerialSpeed, pBusSpeed, pCanFd, pDataRate, pListenOnly, pActive);
     if(conn_p)
     {
+        conn_p->presetLinSettings(pLinMode, pLinChecksum);
+
         /* connect signal */
         connect(conn_p, &CANConnection::status, this, &ConnectionWindow::connectionStatus);
         if (ui->ckEnableConsole->isChecked())
@@ -607,6 +647,8 @@ void ConnectionWindow::loadConnections()
     QVector<int>    serialSpeeds;
     QVector<int>    listenOnlys;
     QVector<int>    actives;
+    QVector<int>    linModes;
+    QVector<int>    linChecksums;
 
     slist = settings.value("connections/portNames").toStringList();
     portNames.reserve(slist.size());
@@ -662,6 +704,18 @@ void ConnectionWindow::loadConnections()
         actives << v.toInt();
     vlist.clear();
 
+    vlist = settings.value("connections/linModes").toList();
+    linModes.reserve(vlist.size());
+    for (const QVariant &v : std::as_const(vlist))
+        linModes << v.toInt();
+    vlist.clear();
+
+    vlist = settings.value("connections/linChecksums").toList();
+    linChecksums.reserve(vlist.size());
+    for (const QVariant &v : std::as_const(vlist))
+        linChecksums << v.toInt();
+    vlist.clear();
+
     //don't load the connections if the three setting arrays above aren't all the same size.
     int err = 0;
 
@@ -708,12 +762,21 @@ void ConnectionWindow::loadConnections()
     while (actives.count() < driverNames.count())
         actives.append(1);
 
+    /* the LIN settings are optional too (older sessions won't have them): monitor, checksum per ID */
+    while (linModes.count() < driverNames.count())
+        linModes.append(int(CANBus::LinMode::Monitor));
+    while (linChecksums.count() < driverNames.count())
+        linChecksums.append(int(CommFrame::LinChecksumUnknown));
+
     if (err)
         return;
 
     for(int i = 0 ; i < portNames.count() ; i++)
     {
-        CANConnection* conn_p = create((CANCon::type)devTypes[i], portNames[i], driverNames[i], serialSpeeds[i], busSpeeds[i], isCanFds[i] ? true : false, DataRates[i], listenOnlys[i] ? true : false, actives[i] ? true : false);
+        const int linMode = (linModes[i] >= 0 && linModes[i] <= int(CANBus::LinMode::Slave)) ? linModes[i] : 0;
+        const int linChecksum = (linChecksums[i] >= 0 && linChecksums[i] <= CommFrame::LinChecksumEnhanced) ? linChecksums[i] : 0;
+        CANConnection* conn_p = create((CANCon::type)devTypes[i], portNames[i], driverNames[i], serialSpeeds[i], busSpeeds[i], isCanFds[i] ? true : false, DataRates[i], listenOnlys[i] ? true : false, actives[i] ? true : false,
+                                       CANBus::LinMode(linMode), CommFrame::LinChecksumModel(linChecksum));
         /* add connection to model */
         connModel->add(conn_p);
     }
@@ -737,6 +800,8 @@ void ConnectionWindow::saveConnections()
     QVector<int> CanFds;
     QVector<int> ListenOnlys;
     QVector<int> Actives;
+    QVector<int> LinModes;
+    QVector<int> LinChecksums;
 
     QStringList  slist;
     QVariantList vlist;
@@ -754,12 +819,16 @@ void ConnectionWindow::saveConnections()
             DataRates.append(bus.getDataRate());
             ListenOnlys.append(bus.isListenOnly() ? 1 : 0);
             Actives.append(bus.isActive() ? 1 : 0);
+            LinModes.append(int(bus.getLinMode()));
+            LinChecksums.append(int(bus.getLinChecksumModel()));
         } else {
             busSpeeds.append(0);
             CanFds.append(0);
             DataRates.append(0);
             ListenOnlys.append(0);
             Actives.append(1);
+            LinModes.append(int(CANBus::LinMode::Monitor));
+            LinChecksums.append(int(CommFrame::LinChecksumUnknown));
         }
         serialSpeeds.append(conn_p->getSerialSpeed());
         portNames.append(conn_p->getPort());
@@ -820,6 +889,18 @@ void ConnectionWindow::saveConnections()
     for (int v : Actives)
         vlist << v;
     settings.setValue("connections/actives", vlist);
+
+    vlist.clear();
+    vlist.reserve(LinModes.size());
+    for (int v : LinModes)
+        vlist << v;
+    settings.setValue("connections/linModes", vlist);
+
+    vlist.clear();
+    vlist.reserve(LinChecksums.size());
+    for (int v : LinChecksums)
+        vlist << v;
+    settings.setValue("connections/linChecksums", vlist);
 }
 
 void ConnectionWindow::moveConnUp()

@@ -93,7 +93,7 @@
            <widget class="QComboBox" name="cbBusSpeed"/>
           </item>
           <item row="1" column="0">
-           <widget class="QLabel" name="label_11">
+           <widget class="QLabel" name="listenOnly_label">
             <property name="text">
              <string>Listen Only:</string>
             </property>
@@ -120,7 +120,7 @@
             </property>
            </widget>
           </item>
-          <item row="5" column="1">
+          <item row="7" column="1">
            <widget class="QPushButton" name="btnSaveBus">
             <property name="text">
              <string>Save Bus Settings</string>
@@ -146,6 +146,26 @@
              <string>CAN FD Data Rate</string>
             </property>
            </widget>
+          </item>
+          <item row="5" column="0">
+           <widget class="QLabel" name="linMode_label">
+            <property name="text">
+             <string>LIN Mode:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QComboBox" name="cbLinMode"/>
+          </item>
+          <item row="6" column="0">
+           <widget class="QLabel" name="linChecksum_label">
+            <property name="text">
+             <string>LIN Checksum:</string>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="1">
+           <widget class="QComboBox" name="cbLinChecksum"/>
           </item>
          </layout>
         </item>

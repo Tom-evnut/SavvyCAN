@@ -166,6 +166,13 @@ public slots:
     bool getBusSettings(int pBusIdx, CANBus& pBus);
 
     /**
+     * @brief presetLinSettings
+     * @param pMode, pChecksumModel: the LIN settings for bus 0, as saved with the connection
+     * @note call before start(), like the bus 0 settings given to the constructor; only a LIN bus uses them
+     */
+    void presetLinSettings(CANBus::LinMode pMode, CommFrame::LinChecksumModel pChecksumModel);
+
+    /**
      * @brief suspends/restarts data capture
      * @param pSuspend: suspends capture if true else restarts it
      * @note this calls piSuspend (in the working thread context if one has been started)

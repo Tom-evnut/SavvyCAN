@@ -85,6 +85,20 @@ target_link_libraries(TestApgdt001Parser
     Qt6::SerialBus
 )
 
+###### CANBus test ######
+add_executable(TestCanBus
+    test_canbus.cpp
+    ../connections/canbus.cpp  # the class under test
+)
+
+target_include_directories(TestCanBus PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestCanBus
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 
 # Enable ctest integration
 enable_testing()
@@ -92,3 +106,4 @@ add_test(NAME TestIsoTpHandler COMMAND TestIsoTpHandler)
 add_test(NAME TestUdsHandler COMMAND TestUdsHandler)
 add_test(NAME TestLinFrame COMMAND TestLinFrame)
 add_test(NAME TestApgdt001Parser COMMAND TestApgdt001Parser)
+add_test(NAME TestCanBus COMMAND TestCanBus)
