@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include "connections/canconmanager.h"
@@ -72,6 +73,16 @@ LinScheduleWindow::LinScheduleWindow(QWidget *parent) : QDialog(parent, Qt::Wind
     mTable->setColumnWidth(COL_DATA, 190);
     mTable->setSelectionBehavior(QAbstractItemView::SelectRows);
 
+    mSignalsLabel = new QLabel;
+    mSignalsLabel->setWordWrap(true);
+    mSignals = new QTableWidget(0, SIG_COUNT);
+    mSignals->setHorizontalHeaderLabels({tr("Signal"), tr("Value"), tr("Raw"), tr("Values")});
+    mSignals->verticalHeader()->setVisible(false);
+    mSignals->horizontalHeader()->setStretchLastSection(true);
+    mSignals->setColumnWidth(SIG_NAME, 180);
+    mSignals->setColumnWidth(SIG_VALUE, 160);
+    mSignals->setColumnWidth(SIG_RAW, 90);
+
     auto *form = new QFormLayout;
     form->addRow(tr("LDF:"), mFile);
     form->addRow(tr("Schedule table:"), mSchedule);
@@ -83,9 +94,18 @@ LinScheduleWindow::LinScheduleWindow(QWidget *parent) : QDialog(parent, Qt::Wind
     busRow->addWidget(mStartStop);
     form->addRow(tr("Bus:"), busRow);
 
+    auto *signalBox = new QWidget;
+    auto *signalLayout = new QVBoxLayout(signalBox);
+    signalLayout->setContentsMargins(0, 0, 0, 0);
+    signalLayout->addWidget(mSignalsLabel);
+    signalLayout->addWidget(mSignals);
+    auto *splitter = new QSplitter(Qt::Vertical);
+    splitter->addWidget(mTable);
+    splitter->addWidget(signalBox);
+
     auto *layout = new QVBoxLayout(this);
     layout->addLayout(form);
-    layout->addWidget(mTable);
+    layout->addWidget(splitter, 1);
     layout->addWidget(mStatus);
 
     mSendTimer.setSingleShot(true);
@@ -97,6 +117,8 @@ LinScheduleWindow::LinScheduleWindow(QWidget *parent) : QDialog(parent, Qt::Wind
     connect(mSchedule, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &LinScheduleWindow::scheduleChanged);
     connect(mStartStop, &QPushButton::clicked, this, &LinScheduleWindow::startStop);
     connect(mTable, &QTableWidget::cellChanged, this, &LinScheduleWindow::cellChanged);
+    connect(mTable, &QTableWidget::currentCellChanged, this, &LinScheduleWindow::showSignals);
+    connect(mSignals, &QTableWidget::cellChanged, this, &LinScheduleWindow::signalChanged);
     connect(&mSendTimer, &QTimer::timeout, this, &LinScheduleWindow::sendDue);
     connect(&mStatusTimer, &QTimer::timeout, this, &LinScheduleWindow::showStatus);
 
@@ -219,6 +241,7 @@ void LinScheduleWindow::fillTable()
         }
     }
     mFilling = false;
+    showSignals();
 }
 
 void LinScheduleWindow::cellChanged(int row, int column)
@@ -227,12 +250,110 @@ void LinScheduleWindow::cellChanged(int row, int column)
     const LinScheduleSlot &slot = mRunner.schedule().entries.at(row);
     QByteArray data;
     if (parseHexBytes(mTable->item(row, column)->text(), data)) mRunner.setData(slot.name, data);
-    //show what's sent (normalised, or the old data if the text wasn't valid), in every row of the same frame
+    //show what's sent (normalised, or the old data if the text wasn't valid)
+    showData(slot.name);
+    showSignals();
+}
+
+void LinScheduleWindow::showData(const QString &frameName)
+{
     mFilling = true;
     for (int r = 0; r < mRunner.schedule().entries.size(); r++)
-        if (mRunner.schedule().entries.at(r).name == slot.name && mTable->item(r, COL_DATA))
+    {
+        const LinScheduleSlot &slot = mRunner.schedule().entries.at(r);
+        if (slot.name == frameName && mTable->item(r, COL_DATA))
             mTable->item(r, COL_DATA)->setText(hexBytes(mRunner.dataFor(slot)));
+    }
     mFilling = false;
+}
+
+//the signals of the frame a master-frame row sends, from the LDF's message of that ID; none for other rows
+QList<DBC_SIGNAL *> LinScheduleWindow::signalsOfRow(int row) const
+{
+    DBCFile *file = currentFile();
+    if (!file || row < 0 || row >= mRunner.schedule().entries.size()) return {};
+    const LinScheduleSlot &slot = mRunner.schedule().entries.at(row);
+    if (slot.kind != LinScheduleSlot::MasterFrame) return {};
+    DBC_MESSAGE *msg = file->messageHandler->findMsgByID(slot.id);
+    return msg ? msg->sigHandler->getSignalsAsList() : QList<DBC_SIGNAL *>();
+}
+
+static LinSignal::Spec specOf(const DBC_SIGNAL *sig)
+{
+    LinSignal::Spec spec;
+    spec.startBit = sig->startBit;
+    spec.size = sig->signalSize;
+    spec.factor = sig->factor;
+    spec.bias = sig->bias;
+    spec.isSigned = sig->valType == SIGNED_INT;
+    for (const DBC_VAL_ENUM_ENTRY &v : sig->valList) spec.values << qMakePair(qint64(v.value), v.descript);
+    return spec;
+}
+
+//the signals of the selected row's frame, with their values in the data the master sends now
+void LinScheduleWindow::showSignals()
+{
+    mFilling = true;
+    mSignalRow = mTable->currentRow();
+    const QList<DBC_SIGNAL *> sigs = signalsOfRow(mSignalRow);
+    mSignals->setRowCount(int(sigs.size()));
+    if (sigs.isEmpty())
+    {
+        const bool master = mSignalRow >= 0 && mSignalRow < mRunner.schedule().entries.size()
+                            && mRunner.schedule().entries.at(mSignalRow).kind == LinScheduleSlot::MasterFrame;
+        mSignalsLabel->setText(master ? tr("The LDF has no signals for this frame: edit its data above.")
+                                      : tr("Select a frame the master sends to set its signals."));
+        mFilling = false;
+        return;
+    }
+    const LinScheduleSlot &slot = mRunner.schedule().entries.at(mSignalRow);
+    mSignalsLabel->setText(tr("Signals of %1: type a value from its value table, a number (scaled with the signal's "
+                              "factor and offset), or a raw value as 0x...").arg(slot.name));
+    const QByteArray data = mRunner.dataFor(slot);
+    CommFrame frame(CommFrame::LINDataFrame);
+    frame.setFrameId(slot.id);
+    frame.setPayload(data);
+    for (int row = 0; row < sigs.size(); row++)
+    {
+        DBC_SIGNAL *sig = sigs.at(row);
+        QString value;
+        if (!sig->processAsText(frame, value, false)) value.clear();
+        LinSignal::Spec rawSpec = specOf(sig);
+        rawSpec.isSigned = false; //shown as the bits are
+        const quint64 raw = quint64(LinSignal::rawValue(data, rawSpec));
+        QStringList values;
+        for (const DBC_VAL_ENUM_ENTRY &v : sig->valList) values << QString("%1 = %2").arg(v.value).arg(v.descript);
+        const QStringList texts = {sig->name, value, "0x" + QString::number(raw, 16).toUpper(),
+                                   values.join(", ")};
+        for (int col = 0; col < SIG_COUNT; col++)
+        {
+            auto *item = new QTableWidgetItem(texts.at(col));
+            //LIN signals are little-endian; a big-endian one (from a DBC file) can only be changed as hex above
+            if (col != SIG_VALUE || !sig->intelByteOrder) item->setFlags(item->flags() & ~Qt::ItemIsEditable);
+            mSignals->setItem(row, col, item);
+        }
+    }
+    mFilling = false;
+}
+
+void LinScheduleWindow::signalChanged(int row, int column)
+{
+    if (mFilling || column != SIG_VALUE) return;
+    const QList<DBC_SIGNAL *> sigs = signalsOfRow(mSignalRow);
+    if (row < 0 || row >= sigs.size()) return;
+    const LinScheduleSlot slot = mRunner.schedule().entries.at(mSignalRow);
+    const LinSignal::Spec spec = specOf(sigs.at(row));
+    quint64 raw = 0;
+    QString why;
+    if (LinSignal::rawFromText(mSignals->item(row, column)->text(), spec, raw, &why))
+    {
+        QByteArray data = mRunner.dataFor(slot);
+        LinScheduleSet::putBits(data, spec.startBit, spec.size, raw);
+        mRunner.setData(slot.name, data);
+        showData(slot.name);
+    }
+    else mStatus->setText(tr("%1: %2").arg(sigs.at(row)->name, why));
+    QMetaObject::invokeMethod(this, &LinScheduleWindow::showSignals, Qt::QueuedConnection); //not from inside the edit
 }
 
 void LinScheduleWindow::startStop()

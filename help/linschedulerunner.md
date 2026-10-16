@@ -22,6 +22,10 @@ What each slot sends (the Sends column):
   bytes ("21 00 C0 05" or "2100C005"); the change applies from the next time the frame goes out, in every slot that
   sends that frame, and stays when you switch schedule tables. MasterReq slots send the master request frame's data,
   and FreeFormat slots their eight bytes.
+  Select a master frame's row to see its signals underneath, with the values the master sends now. Type in the Value
+  column to change one: a name from the signal's value table ("Motor 2", "Unlock"), a number (scaled with the
+  signal's factor and offset, as the LDF gives them), or a raw value as hex ("0xBD00"). The frame's data changes to
+  match, and goes out from the next time the frame is sent.
 * **Header (a slave answers):** a frame a slave publishes, an event-triggered frame or SlaveResp: the header alone.
 * **Nothing:** AssignNAD and the other node configuration commands, and sporadic frames, aren't sent yet. Their slot
   still takes its time, so the rest of the schedule keeps its timing.
