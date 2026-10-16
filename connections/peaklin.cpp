@@ -86,10 +86,10 @@ void PeakLin::tryConnect()
     CANBus bus;
     getBusConfig(0, bus);
     QString error;
-    if (mMonitor->start(getPort(), bus.getSpeed(), &error))
+    if (mMonitor->start(getPort(), bus.getSpeed(), &error, bus.getLinMode() == CANBus::LinMode::Master))
     {
         mLastError.clear();
-        emit debugOutput(QString("PEAK LIN: listening on %1 at %2 bit/s")
+        emit debugOutput(QString("PEAK LIN: %1 on %2 at %3 bit/s").arg(mMonitor->isMaster() ? "master" : "listening")
                              .arg(PlinMonitor::portName(mMonitor->currentHardware())).arg(bus.getSpeed()));
         if (mReconnectTimer) mReconnectTimer->stop();
         if (mReadTimer) mReadTimer->start();
@@ -123,6 +123,7 @@ void PeakLin::readChannel()
         mReconnectTimer->start();
         return;
     }
+    for (const CommFrame &frame : std::as_const(mFrames)) mChecksumModels.learn(frame);
     if (mFrames.isEmpty() || isCapSuspended()) return;
     CANBus bus;
     if (getBusConfig(0, bus) && !bus.isActive()) return;
@@ -175,13 +176,25 @@ void PeakLin::piSetBusSettings(int pBusIdx, CANBus bus)
                              .arg(bus.getSpeed()).arg(Plin::MIN_BAUDRATE).arg(Plin::MAX_BAUDRATE).arg(old.getSpeed()));
         bus.setSpeed(old.getSpeed());
     }
-    if (bus.getLinMode() != CANBus::LinMode::Monitor)
+    if (bus.getLinMode() == CANBus::LinMode::Slave)
     {
-        emit debugOutput("PEAK LIN: only monitor mode is supported so far");
-        bus.setLinMode(CANBus::LinMode::Monitor);
+        emit debugOutput("PEAK LIN: slave mode isn't supported yet; staying in " +
+                         QString(old.getLinMode() == CANBus::LinMode::Master ? "master" : "monitor") + " mode");
+        bus.setLinMode(old.getLinMode());
     }
-    bus.setListenOnly(true);
+    bus.setListenOnly(bus.getLinMode() == CANBus::LinMode::Monitor);
     setBusConfig(0, bus);
+
+    if (mMonitor && mMonitor->isRunning() && bus.getLinMode() != old.getLinMode())
+    {
+        QString error;
+        const bool master = bus.getLinMode() == CANBus::LinMode::Master;
+        if (mMonitor->setMaster(master, &error))
+            emit debugOutput(master ? "PEAK LIN: master mode: frames sent to this bus go out"
+                                    : "PEAK LIN: monitor mode: listening only");
+        else
+            emit debugOutput("PEAK LIN: " + error);
+    }
 
     if (mMonitor && mMonitor->isRunning() && bus.getSpeed() != old.getSpeed())
     {
@@ -193,9 +206,27 @@ void PeakLin::piSetBusSettings(int pBusIdx, CANBus bus)
     }
 }
 
-bool PeakLin::piSendFrame(const CommFrame &)
+//master mode: a header and response, or a header alone (see LinFormat::toLinForSending())
+bool PeakLin::piSendFrame(const CommFrame &frame)
 {
-    if (!mSendWarned) emit debugOutput("PEAK LIN: sending isn't supported yet (monitor mode only)");
-    mSendWarned = true;
-    return false;
+    CANBus bus;
+    getBusConfig(0, bus);
+    if (bus.getLinMode() != CANBus::LinMode::Master)
+    {
+        emit debugOutput("PEAK LIN: not sent: the bus is in monitor mode (set master mode in the bus settings to send)");
+        return false;
+    }
+    CommFrame lin;
+    QString why;
+    if (!LinFormat::toLinForSending(frame, mChecksumModels.forSending(frame.frameId(), bus.getLinChecksumModel()), lin, &why))
+    {
+        emit debugOutput("PEAK LIN: not sent: " + why);
+        return false;
+    }
+    if (!mMonitor || !mMonitor->send(lin, &why))
+    {
+        emit debugOutput("PEAK LIN: not sent: " + (mMonitor ? why : QString("not connected")));
+        return false;
+    }
+    return true;
 }

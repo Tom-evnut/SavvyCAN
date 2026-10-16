@@ -53,7 +53,7 @@ Connecting to a Microchip LIN Serial Analyzer (LIN)
 
 The Microchip LIN Serial Analyzer (APGDT001) captures LIN traffic over USB. Select "Microchip LIN Serial Analyzer (APGDT001, LIN)": the port list shows the connected analyzers by serial number, and an empty port means the first one found. The analyzer is a plain USB HID device, so it needs no driver; on Linux your user needs access to its hidraw device (a udev rule). This connection is only there if SavvyCAN was built with hidapi.
 
-The connection has one LIN bus, bus 0. It only listens for now (monitor mode): it doesn't send headers or responses. Set the bit rate in the bus settings of the connection window (2400 to 20000 bit/s, 19200 to start with); the debug console says whether the analyzer took the setting.
+The connection has one LIN bus, bus 0. In monitor mode (the default) it only listens; in master mode it sends what you send to its bus (see Sending on a LIN bus below). Set the bit rate and mode in the bus settings of the connection window (2400 to 20000 bit/s, 19200 to start with); the debug console says whether the analyzer took the setting.
 
 Received LIN frames have the 6-bit LIN ID as their ID and the response's data bytes as their data. A header nobody answered has no data. SavvyCAN checks each response's checksum, works out whether the ID uses the classic or the enhanced checksum, and checks the ID's parity bits. Timestamps come from the analyzer's clock, in steps of 0.409 ms.
 
@@ -68,7 +68,20 @@ Connecting to a PEAK LIN interface (LIN)
 
 PEAK's LIN interfaces (PLIN-USB, and the LIN channels of the PCAN-USB Pro FD and PCAN-USB Pro) capture LIN traffic through PEAK's PLIN driver. Install the PLIN driver from peak-system.com: it brings PLinApi.dll, which SavvyCAN uses. Select "PEAK LIN (PLIN-USB, PCAN-USB Pro / Pro FD)": the port list shows each LIN channel as "name, device n, channel m", and an empty port means the first one found. Without the driver the option is greyed out and its tooltip says why. This works on Windows only so far.
 
-The connection has one LIN bus, bus 0, and only listens (monitor mode): the channel is set up as a LIN slave that receives every frame ID and never answers. Set the bit rate in the bus settings (1000 to 20000 bit/s, 19200 to start with). Frames show as described for the Microchip analyzer above, with the checksum checked, the checksum model worked out per ID, and PEAK's error flags (sync, parity, incomplete response, bus shorts) shown as errors. Timestamps come from the interface, in microseconds. Sleep and wake-up events and overruns are counted in the debug console.
+The connection has one LIN bus, bus 0, and listens in monitor mode (the default): the channel is set up as a LIN slave that receives every frame ID and never answers. In master mode it sends what you send to its bus (see Sending on a LIN bus below). Set the bit rate in the bus settings (1000 to 20000 bit/s, 19200 to start with). Frames show as described for the Microchip analyzer above, with the checksum checked, the checksum model worked out per ID, and PEAK's error flags (sync, parity, incomplete response, bus shorts) shown as errors. Timestamps come from the interface, in microseconds. Sleep and wake-up events and overruns are counted in the debug console.
+
+Sending on a LIN bus
+====================
+
+To send, set the LIN bus to Master in the connection's bus settings (LIN Mode). Then frames sent to that bus, from the Send Frames window, a script or the playback window, go out on the LIN bus, with SavvyCAN as the LIN master:
+
+* a frame with an ID of 0 to 63 and 1 to 8 data bytes is sent as a header and that response, with its checksum;
+* a frame with no data, or a remote frame, is sent as a header alone, for a slave to answer; its answer shows in the frame list like any other frame;
+* frames with an extended ID, an ID over 63, or CAN FD frames aren't sent, and the debug console says why.
+
+The checksum model is the bus's LIN Checksum setting. Left at "Per ID, as received", each ID is sent with the model it was last seen using on the bus, and with the enhanced (LIN 2.x) checksum if it hasn't been seen yet; diagnostic frames (IDs 0x3C and 0x3D) always use the classic checksum. LIN frames played back from a log keep the checksum they were logged with. The frames sent show in the frame list as the interface reports them, so each appears once. Slave mode (answering headers) isn't there yet.
+
+With the Microchip analyzer, sending a header alone uses a command that hasn't been checked on an analyzer yet.
 
 Connecting over MQTT
 ====================

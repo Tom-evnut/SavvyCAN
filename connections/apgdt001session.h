@@ -48,6 +48,13 @@ public:
     static QByteArray statusRequestReport() { return commandReport(QByteArray::fromHex("0102")); }
     static QByteArray commClearReport() { return commandReport(QByteArray::fromHex("0107")); }
     static QByteArray controlBlockReport(const QByteArray &block);
+    /*
+     * Sending as master: 03 <n+6> 84 <n+2> <PID> <data...> <checksum> 1F 77 00, a script that sends a header and a
+     * response of n data bytes (Microchip's library: the first length counts the script from 84 to 77, the second the
+     * PID, data and checksum). With no data, 03 05 84 01 <PID> 1F 77 00: the same script with the PID alone, which
+     * should send just the header for a slave to answer - not confirmed on a device.
+     */
+    static QByteArray transmitReport(quint8 id, const QByteArray &data, quint8 checksum);
 
     //the reports to send, in order; both end with a status request whose reply is checked (check())
     QList<QByteArray> startCommands(int baud, qint64 nowUs);

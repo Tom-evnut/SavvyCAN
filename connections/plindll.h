@@ -26,6 +26,7 @@ public:
                           quint8 checksumType) override;
     quint32 setClientFilter(quint8 client, quint16 hw, quint64 mask) override;
     quint32 read(quint8 client, PlinRcvMsg *msg) override;
+    quint32 write(quint8 client, quint16 hw, const PlinMsg &msg) override;
     QString errorText(quint32 error) override;
 
     static PlinDll &instance(); //one per process: the DLL keeps its own state

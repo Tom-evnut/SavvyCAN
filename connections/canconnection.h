@@ -336,6 +336,12 @@ protected:
      */
     virtual bool piSendFrames(const QList<CommFrame>&);
 
+    /**
+     * @brief whether the device reports the frames it sends as it receives others
+     * @return true to leave out the local echo sendFrame() otherwise adds (it would show each frame twice)
+     */
+    virtual bool piReportsSentFrames() const { return false; }
+
 private:
     LFQueue<CommFrame>   mQueue;
     const QString       mPort;

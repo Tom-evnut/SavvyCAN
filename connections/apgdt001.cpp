@@ -231,6 +231,7 @@ void Apgdt001::readDevice()
     mFrames.clear();
     if (n > 0) mSession.processReport(reinterpret_cast<const char *>(report), n, nowUs, hostTimestamp(), mFrames);
     mSession.poll(nowUs, hostTimestamp(), mFrames);
+    for (const CommFrame &frame : std::as_const(mFrames)) mChecksumModels.learn(frame);
     reportCheck();
     deliverFrames();
 #endif
@@ -300,12 +301,16 @@ void Apgdt001::piSetBusSettings(int pBusIdx, CANBus bus)
                              .arg(old.getSpeed()));
         bus.setSpeed(old.getSpeed());
     }
-    if (bus.getLinMode() != CANBus::LinMode::Monitor)
+    if (bus.getLinMode() == CANBus::LinMode::Slave)
     {
-        emit debugOutput("APGDT001: only monitor mode is supported so far");
-        bus.setLinMode(CANBus::LinMode::Monitor);
+        emit debugOutput("APGDT001: slave mode isn't supported yet; staying in " +
+                         QString(old.getLinMode() == CANBus::LinMode::Master ? "master" : "monitor") + " mode");
+        bus.setLinMode(old.getLinMode());
     }
-    bus.setListenOnly(true);
+    if (bus.getLinMode() != old.getLinMode())
+        emit debugOutput(bus.getLinMode() == CANBus::LinMode::Master ? "APGDT001: master mode: frames sent to this bus go out"
+                                                                     : "APGDT001: monitor mode: listening only");
+    bus.setListenOnly(bus.getLinMode() == CANBus::LinMode::Monitor);
     setBusConfig(0, bus);
 
     if (mDevice && bus.getSpeed() != old.getSpeed())
@@ -315,9 +320,27 @@ void Apgdt001::piSetBusSettings(int pBusIdx, CANBus bus)
     }
 }
 
-bool Apgdt001::piSendFrame(const CommFrame &)
+//master mode: a header and response, or a header alone (see LinFormat::toLinForSending())
+bool Apgdt001::piSendFrame(const CommFrame &frame)
 {
-    if (!mSendWarned) emit debugOutput("APGDT001: sending isn't supported yet (monitor mode only)");
-    mSendWarned = true;
+    CANBus bus;
+    getBusConfig(0, bus);
+    if (bus.getLinMode() != CANBus::LinMode::Master)
+    {
+        emit debugOutput("APGDT001: not sent: the bus is in monitor mode (set master mode in the bus settings to send)");
+        return false;
+    }
+    CommFrame lin;
+    QString why;
+    if (!LinFormat::toLinForSending(frame, mChecksumModels.forSending(frame.frameId(), bus.getLinChecksumModel()), lin, &why))
+    {
+        emit debugOutput("APGDT001: not sent: " + why);
+        return false;
+    }
+#ifdef HAVE_HIDAPI
+    if (!mDevice) return false;
+    return sendReports({Apgdt001Session::transmitReport(quint8(lin.frameId()), lin.payload(), lin.linChecksumByte())});
+#else
     return false;
+#endif
 }

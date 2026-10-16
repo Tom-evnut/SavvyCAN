@@ -81,6 +81,17 @@ struct PlinRcvMsg
     quint16 hardware = 0;
 };
 
+//one LIN message to send as master (TLINMsg)
+struct PlinMsg
+{
+    quint8 frameId = 0;           //the protected ID: the API sends it as given
+    quint8 length = 0;            //1-8
+    quint8 direction = Plin::dirPublisher;
+    quint8 checksumType = Plin::cstCustom;
+    quint8 data[8] = {};
+    quint8 checksum = 0;          //sent as given with cstCustom
+};
+
 //a LIN channel on PEAK hardware
 struct PlinHardware
 {
@@ -110,6 +121,7 @@ public:
                                   quint8 checksumType) = 0;
     virtual quint32 setClientFilter(quint8 client, quint16 hw, quint64 mask) = 0;
     virtual quint32 read(quint8 client, PlinRcvMsg *msg) = 0;
+    virtual quint32 write(quint8 client, quint16 hw, const PlinMsg &msg) = 0; //master only: one header (and response)
     virtual QString errorText(quint32 error) = 0;
 };
 
