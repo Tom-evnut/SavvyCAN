@@ -54,8 +54,27 @@ These shape everything after and are cheap to settle before code lands.
 | C. Commercial adapters (PEAK PLIN-USB, Vector XL, Kvaser LIN) | Robust, master and slave modes, many users already own one | Vendor SDKs, Windows-centric, licensing to check per SDK; one driver per vendor |
 | D. Linux `sllin` (LIN over SocketCAN) | Reuses the QtSerialBus SocketCAN path | Out-of-tree driver; LIN details packed into CAN ID flags; Linux only. Check its current state before committing to it |
 
-**Decision:** the APGDT001 first, because it's the adapter on the bench. Keep the connection layer generic so GVRET
-(A), a Pico sniffer (B) and vendor adapters (C) can follow as separate connections.
+**Decision:** the APGDT001 first, because it's the adapter on the bench; **PEAK LIN second** (not on the bench yet,
+see below). Keep the connection layer generic so GVRET (A), a Pico sniffer (B) and other vendor adapters (C) can
+follow as separate connections.
+
+**PEAK LIN interfaces (second connection).** PEAK's LIN hardware: PLIN-USB (one LIN channel), PCAN-USB Pro FD (two
+CAN FD + two LIN) and the discontinued PCAN-USB Pro (two CAN + two LIN). From PEAK's pages, to check against
+their documentation when the work starts:
+
+- **Windows:** PLIN-API (`PLinApi.dll` + header), installed with PEAK's driver. Load the DLL at run time, as Qt's
+  PEAK CAN plugin does with `PCANBasic.dll`, so SavvyCAN builds and runs without it and the connection only appears
+  when it's installed. Check the API's licence for shipping its header in the repository.
+- **Linux:** PEAK's LIN driver (1.3.0 covers all three devices) exposes a character-device interface rather than
+  PLIN-API, so the Linux side is a second, smaller backend behind the same connection.
+- **What it gives over the APGDT001:** a hardware client per channel that can be monitor, master or slave; frame
+  entries per ID (direction, length, checksum type) and schedule tables kept in the device; device timestamps and
+  per-frame error flags from the driver. That covers phase 3's master and slave modes and schedule runner in the
+  device instead of in SavvyCAN.
+- **CAN on the Pro FD / Pro** keeps going through QtSerialBus (`peakcan`); the LIN channels are a separate
+  connection with buses of type LIN (D3).
+- **Testing without hardware:** a fake PLIN backend in the unit tests (the connection talks to an interface, not
+  the DLL directly); bench testing once a device is available.
 
 **How the APGDT001 talks to a PC.** Worked out from Microchip's *LIN Library API Demo* (Java; library jars read as
 bytecode, not run). Nothing here has been checked against the device yet; the last list says what to confirm.
@@ -91,7 +110,7 @@ bytecode, not run). Nothing here has been checked against the device yet; the la
   - `11 n …`: a block of bytes; `12`, `15`, `1A`, `80`, `81`, `86`, `87` carry bytes the library skips; `84`, `88`,
     `16`-`19`, `1B` stand alone.
 - **What that means for SavvyCAN:**
-  - Frames aren't delimited by the device. A frame ends at the next break, after 9 bytes (PID + 8 data + checksum)
+  - Frames aren't delimited by the device. A frame ends at the next break, after 10 bytes (PID + 8 data + checksum)
     or after a bit-rate-dependent timeout; the last byte is the checksum. A PID with nothing after it is a header
     with no response.
   - The device doesn't check checksums or parity. `CommFrame::verifyLinChecksum()` and the PID parity check do it,
@@ -167,7 +186,11 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
   receive stream parsed into `CommFrame`s (D1): PID parity and checksum checked with the step 1 helpers, header-only
   frames kept, the library's per-frame errors mapped to LIN error flags. The 0.409 ms event timer, unwrapped with its
   rollover markers, mapped onto SavvyCAN's clock as the pico-flexray parser does. A parser kept separate from the
-  USB code, as `picoflexrayparser` is, so the mock and the tests can feed it bytes.
+  USB code, as `picoflexrayparser` is, so the mock and the tests can feed it bytes. *Parser done
+  (`connections/apgdt001parser.*` on `lin-phase1-model`, with unit tests); the USB connection is next.*
+- **PEAK LIN connection (after the APGDT001, separate branch):** "PEAK LIN (PLIN-USB, PCAN-USB Pro / Pro FD)",
+  monitor mode first: PLIN-API loaded at run time on Windows, PEAK's LIN driver on Linux, one LIN bus per channel,
+  device timestamps and error flags mapped onto `CommFrame`'s LIN details (D1).
 - **GVRET (later, separate branch):** a receive opcode for LIN frames, applying the LIN1/LIN2 settings from
   `GET_EXT_BUSES`; firmware side in the ESP32RET fork. Old firmware keeps working (the opcode is only expected after
   the device says it supports it, as with `GET_FD`).
@@ -193,6 +216,8 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 - **APGDT001:** master mode (header, or header + response) and slave mode (respond to a given ID with given data and
   checksum model), using its host and slave roles. Bus mode settable from SavvyCAN.
+- **PEAK LIN:** master and slave through the device's own frame table and schedules (its hardware client), so a
+  schedule from an LDF can be loaded into the device and run there.
 - **GVRET (later):** matching transmit opcode and slave response table in the ESP32RET fork.
 - **Send Frames window:** LIN rows (bus, ID, data, checksum model, master/slave-response); scripting gets
   `lin.sendFrame()` / slave response helpers.
@@ -270,5 +295,7 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 2. Phase 1, in this order: the `CommFrame` LIN model and its unit tests (no hardware needed), the bus type, the
    APGDT001 connection, then the frame list and native CSV.
 3. Phase 2 (LDF and decoding).
-4. Phase 3 (sending) and phase 4 (log files) are independent; run them in parallel once phase 2 lands.
-5. Phase 5 accelerators last, on top of real captures.
+4. The PEAK LIN connection, in monitor mode, once a PEAK LIN device is on the bench (needs the bus type from
+   phase 1; its unit tests can come earlier, against a fake backend).
+5. Phase 3 (sending) and phase 4 (log files) are independent; run them in parallel once phase 2 lands.
+6. Phase 5 accelerators last, on top of real captures.
