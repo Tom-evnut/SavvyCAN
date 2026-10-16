@@ -461,6 +461,13 @@ void TestLdf::testLoadAsDbc()
     QCOMPARE(req->sender->name, QString("BCM"));
     QVERIFY(file.messageHandler->findMsgByID(0x11)->comment.contains("sporadic frame CmdSporadic"));
 
+    // the schedule tables are kept for sending (LinScheduleSet has its own tests), and go with copies of the file
+    QCOMPARE(file.linSchedules.schedules.size(), 3);
+    QVERIFY(file.linSchedules.find("Normal"));
+    QCOMPARE(file.linSchedules.find("Normal")->entries.size(), 3);
+    const DBCFile copy(file);
+    QCOMPARE(copy.linSchedules.schedules.size(), 3);
+
     // interpreted rows in the frame list use these: the palette's colours, as for DBC files (invalid shows black)
     for (DBC_MESSAGE *msg : file.messageHandler->getMsgsAsList()) {
         QVERIFY2(msg->bgColor.isValid() && msg->fgColor.isValid(), qPrintable(msg->name));
@@ -598,6 +605,7 @@ void TestLdf::testSaveAsDbc()
     DBCFile reloaded;
     QVERIFY(reloaded.loadFile(dir.filePath("saved.dbc")));
     QVERIFY(reloaded.isLin());
+    QVERIFY(reloaded.linSchedules.isEmpty()); // a DBC file has no schedule tables
     QCOMPARE(reloaded.messageHandler->getCount(), file.messageHandler->getCount());
     for (DBC_MESSAGE *msg : file.messageHandler->getMsgsAsList()) {
         DBC_MESSAGE *other = reloaded.messageHandler->findMsgByID(msg->ID);

@@ -86,6 +86,7 @@ MainWindow::MainWindow(QWidget *parent) :
     playbackWindow = nullptr;
     flowViewWindow = nullptr;
     frameSenderWindow = nullptr;
+    linScheduleWindow = nullptr;
     dbcMainEditor = nullptr;
     comparatorWindow = nullptr;
     settingsDialog = nullptr;
@@ -126,6 +127,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->action_Playback, &QAction::triggered, this, &MainWindow::showPlaybackWindow);
     connect(ui->actionFlow_View, &QAction::triggered, this, &MainWindow::showFlowViewWindow);
     connect(ui->action_Custom, &QAction::triggered, this, &MainWindow::showFrameSenderWindow);
+    connect(ui->actionLIN_Schedule_Runner, &QAction::triggered, this, &MainWindow::showLinScheduleWindow);
     connect(ui->actionExit_Application, &QAction::triggered, this, &MainWindow::exitApp);
     connect(ui->actionFuzzy_Scope, &QAction::triggered, this, &MainWindow::showFuzzyScopeWindow);
     connect(ui->actionRange_State_2, &QAction::triggered, this, &MainWindow::showRangeWindow);
@@ -336,6 +338,7 @@ void MainWindow::killEmAll()
     killWindow(playbackWindow);
     killWindow(flowViewWindow);
     killWindow(frameSenderWindow);
+    killWindow(linScheduleWindow);
     killWindow(comparatorWindow);
     killWindow(dbcMainEditor);
     killWindow(settingsDialog);
@@ -2155,6 +2158,13 @@ void MainWindow::showFrameSenderWindow()
             frameSenderWindow = new FrameSenderWindow(model->getFilteredListReference());
     }
     frameSenderWindow->show();
+}
+
+void MainWindow::showLinScheduleWindow()
+{
+    if (!linScheduleWindow) linScheduleWindow = new LinScheduleWindow();
+    linScheduleWindow->show();
+    linScheduleWindow->raise();
 }
 
 void MainWindow::showPlaybackWindow()

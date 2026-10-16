@@ -14,6 +14,7 @@
 #include "re/graphingwindow.h"
 #include "re/frameinfowindow.h"
 #include "frameplaybackwindow.h"
+#include "linschedulewindow.h"
 #include "bisectwindow.h"
 #include "re/flowviewwindow.h"
 #include "framesenderwindow.h"
@@ -86,6 +87,7 @@ private slots:
     void showPlaybackWindow();
     void showFlowViewWindow();
     void showFrameSenderWindow();
+    void showLinScheduleWindow();
     void showSingleMultiWindow();
     void showRangeWindow();
     void showFuzzyScopeWindow();
@@ -192,6 +194,7 @@ private:
 
     FrameInfoWindow *frameInfoWindow;
     FramePlaybackWindow *playbackWindow;
+    LinScheduleWindow *linScheduleWindow;
     FlowViewWindow *flowViewWindow;
     FrameSenderWindow *frameSenderWindow;
     DBCMainEditor *dbcMainEditor;

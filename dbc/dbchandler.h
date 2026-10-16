@@ -4,6 +4,7 @@
 #include <QObject>
 #include "dbc_classes.h"
 #include "can_structs.h"
+#include "linschedule.h"
 
     typedef enum
     {
@@ -96,6 +97,7 @@ public:
     QList<DBC_NODE *> dbc_nodes;
     QList<DBC_VAL_TABLE> dbc_value_tables;
     QList<DBC_ATTRIBUTE> dbc_attributes;
+    LinScheduleSet linSchedules; //an LDF's schedule tables (empty for DBC files)
 private:
     void syncCanFDAttributes();
     void refreshBusType(); //mLin from the BusType attribute

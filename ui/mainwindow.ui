@@ -479,6 +479,7 @@
     </property>
     <addaction name="action_Playback"/>
     <addaction name="action_Custom"/>
+    <addaction name="actionLIN_Schedule_Runner"/>
     <addaction name="actionScripting_INterface"/>
     <addaction name="actionFuzzing"/>
     <addaction name="actionUDS_Scanner"/>
@@ -530,6 +531,11 @@
   <action name="action_Custom">
    <property name="text">
     <string>Custom</string>
+   </property>
+  </action>
+  <action name="actionLIN_Schedule_Runner">
+   <property name="text">
+    <string>LIN Schedule Runner</string>
    </property>
   </action>
   <action name="actionFlow_View">

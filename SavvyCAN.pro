@@ -60,6 +60,8 @@ SOURCES += main.cpp\
     frameplaybackwindow.cpp \
     candatagrid.cpp \
     framesenderwindow.cpp \
+    linschedulerunner.cpp \
+    linschedulewindow.cpp \
     framefileio.cpp \
     mainsettingsdialog.cpp \
     scriptingwindow.cpp \
@@ -81,6 +83,7 @@ SOURCES += main.cpp\
     dbc/dbchandler.cpp \
     dbc/ldfparser.cpp \
     dbc/ldftodbc.cpp \
+    dbc/linschedule.cpp \
     dbc/dbcloadsavewindow.cpp \
     dbc/dbcmaineditor.cpp \
     dbc/dbcnodeeditor.cpp \
@@ -162,6 +165,8 @@ HEADERS  += mainwindow.h \
     frameplaybackwindow.h \
     candatagrid.h \
     framesenderwindow.h \
+    linschedulerunner.h \
+    linschedulewindow.h \
     can_trigger_structs.h \
     framefileio.h \
     config.h \
@@ -185,6 +190,7 @@ HEADERS  += mainwindow.h \
     dbc/dbchandler.h \
     dbc/ldfparser.h \
     dbc/ldftodbc.h \
+    dbc/linschedule.h \
     dbc/dbcloadsavewindow.h \
     dbc/dbcmaineditor.h \
     dbc/dbcsignaleditor.h \
