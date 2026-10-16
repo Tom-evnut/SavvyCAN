@@ -9,6 +9,9 @@
 #define BLF_REMOTE_FLAG 0x80
 
 //BLF channels count from 1 (python-can and Vector's tools write 1 for the first); SavvyCAN's buses from 0
+//an object's own header (base + V1): an object needs at least this much to be read
+static constexpr int BLF_OBJECT_HEADER_V1_SIZE = sizeof(BLF_OBJ_HEADER_BASE) + sizeof(BLF_OBJ_HEADER_V1);
+
 static int busFromChannel(int channel)
 {
     return channel > 0 ? channel - 1 : 0;
@@ -93,14 +96,14 @@ bool BLFHandler::loadBLF(QString filename, QVector<CommFrame>* frames)
                 pos = 0;
                 //bool foundHeader = false;
                 //first skip forward to find a header signature - usually not necessary
-                while ( (int)(pos + sizeof(BLF_OBJ_HEADER)) < uncompressedData.length())
+                while ( (qint64)pos + BLF_OBJECT_HEADER_V1_SIZE <= uncompressedData.length())
                 {
                     int32_t *headerSig = (int32_t *)(uncompressedData.constData() + pos);
                     if (*headerSig == 0x4A424F4C) break;
                     pos += 4;
                 }
                 //then process all the objects
-                while ( (int)(pos + sizeof(BLF_OBJ_HEADER)) < uncompressedData.length())
+                while ( (qint64)pos + BLF_OBJECT_HEADER_V1_SIZE <= uncompressedData.length())
                 {
                     memcpy(&obj.header.base, (uncompressedData.constData() + pos), sizeof(BLF_OBJ_HEADER_BASE));
                     memcpy(&obj.header.v1Obj, (uncompressedData.constData() + pos) + sizeof(BLF_OBJ_HEADER_BASE), sizeof(BLF_OBJ_HEADER_V1));
