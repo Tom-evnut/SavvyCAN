@@ -38,6 +38,37 @@ private:
     QJSEngine *scriptEngine;
 };
 
+/*
+ * lin.xxx in scripts: LIN frames, with SavvyCAN as the LIN master (the bus's connection must be in master mode).
+ *   lin.sendFrame(bus, id, data[, checksum])  a header and response; checksum "classic" or "enhanced" (left out:
+ *                                             the bus's checksum setting)
+ *   lin.sendHeader(bus, id)                   a header alone, for a slave to answer
+ *   lin.setFilter(id, mask, bus), lin.clearFilters()
+ * Received LIN frames that pass a filter call gotLINFrame(bus, id, data, info): info.checksum, info.model ("classic",
+ * "enhanced" or ""), info.headerOnly, info.errors (a list of error names) and info.received.
+ */
+class LINScriptHelper: public QObject
+{
+    Q_OBJECT
+public:
+    LINScriptHelper(QJSEngine *engine);
+
+public slots:
+    void setFilter(QJSValue id, QJSValue mask, QJSValue bus);
+    void clearFilters();
+    void sendFrame(QJSValue bus, QJSValue id, QJSValue data, QJSValue checksum = QJSValue());
+    void sendHeader(QJSValue bus, QJSValue id);
+    void setRxCallback(QJSValue cb);
+
+private slots:
+    void gotTargettedFrame(const CommFrame &frame);
+
+private:
+    QList<CANFilter> filters;
+    QJSValue gotFrameFunction;
+    QJSEngine *scriptEngine;
+};
+
 class ISOTPScriptHelper: public QObject
 {
     Q_OBJECT
@@ -114,6 +145,7 @@ private:
     QTimer timer;
     ScriptingWindow *window;
     CANScriptHelper *canHelper;
+    LINScriptHelper *linHelper;
     ISOTPScriptHelper *isoHelper;
     UDSScriptHelper *udsHelper;
     QVector<QString> scriptParams;
