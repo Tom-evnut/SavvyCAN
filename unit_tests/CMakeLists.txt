@@ -100,6 +100,24 @@ target_link_libraries(TestApgdt001Session
     Qt6::SerialBus
 )
 
+###### LIN display and native CSV test ######
+add_executable(TestLinFormat
+    test_lin_format.cpp
+    ../framefileio.cpp  # native CSV, with what it needs
+    ../blfhandler.cpp
+    ../pcaplite.cpp
+    ../utility.cpp
+)
+
+target_include_directories(TestLinFormat PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestLinFormat
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+    Qt6::Widgets
+)
+
 ###### CANBus test ######
 add_executable(TestCanBus
     test_canbus.cpp
@@ -123,3 +141,4 @@ add_test(NAME TestLinFrame COMMAND TestLinFrame)
 add_test(NAME TestApgdt001Parser COMMAND TestApgdt001Parser)
 add_test(NAME TestCanBus COMMAND TestCanBus)
 add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
+add_test(NAME TestLinFormat COMMAND TestLinFormat)

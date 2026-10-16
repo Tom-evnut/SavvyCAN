@@ -14,6 +14,8 @@ Also listed are detailed statistics for each data byte in that frame. Each byte 
 
 If you have a DBC file loaded which matches the ID you've selected then you will also see details about how the various signals changed over the capture.
 
+For LIN IDs there is also a LIN section: the protected ID (the ID with its parity bits), how many frames had a response and how many were headers nobody answered, the checksum model the ID uses (classic or enhanced, worked out from the checksums received), and the number of checksum, parity and device errors.
+
 The top right graph is a histogram of all the bits and the number of times each bit was set. This can be used to quickly visually see where data has changed. 
 
 The bottom right has 8 graphs, one for each possible byte in a standard CAN frame (CAN-FD support is coming... eventually) Double clicking one of these graphs will size it up and remove the other 7 graphs. Double clicking again brings the 8 byte view back.

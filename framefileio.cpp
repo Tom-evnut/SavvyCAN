@@ -9,6 +9,7 @@
 #include <iostream>
 #include <memory>
 #include "pcaplite.h"
+#include "linformat.h"
 
 #include "utility.h"
 #include "blfhandler.h"
@@ -2232,6 +2233,11 @@ bool FrameFileIO::isNativeCSVFile(QString filename)
 //(error state indicator). Classic CAN rows are unchanged and have nothing in that column. Readers that
 //don't know about it still get the first 8 data bytes.
 //39747828,000001A0,false,Rx,1,12,00,01,02,03,04,05,06,07,08,09,0A,0B,FD+BRS,
+//LIN frames have 8 data columns like classic CAN and "LIN" in the flags column, plus the checksum received
+//("+CS=xx"), its model ("+CLASSIC"/"+ENHANCED"), a received protected ID with bad parity ("+PID=xx") and the
+//errors the device reported (see LinFormat::csvFlags()). The ID is the 6-bit LIN ID; LEN 0 is a header with no
+//response.
+//39747828,00000031,false,Rx,0,8,01,02,03,04,05,06,07,08,LIN+CS=DB+CLASSIC,
 
 //one row of the native CSV format (see above), including the line end
 static QByteArray nativeCSVRow(const CommFrame &frame)
@@ -2264,6 +2270,11 @@ static QByteArray nativeCSVRow(const CommFrame &frame)
         row.append("FD");
         if (frame.hasBitrateSwitch()) row.append("+BRS");
         if (frame.hasErrorStateIndicator()) row.append("+ESI");
+        row.append(',');
+    }
+    else if (frame.isLin())
+    {
+        row.append(LinFormat::csvFlags(frame));
         row.append(',');
     }
     row.append('\n');
@@ -2322,6 +2333,7 @@ bool FrameFileIO::loadNativeCSVFile(QString filename, QVector<CommFrame>* frames
                 if (thisFrame.frameId() > 0x7FF) thisFrame.setExtendedFrameFormat(true);
 
                 thisFrame.setFrameType(CommFrame::CANDataFrame);
+                thisFrame.clearLinInfo(); //thisFrame is reused: no LIN details from the row before
 
                 if (fileVersion == 1)
                 {
@@ -2351,11 +2363,15 @@ bool FrameFileIO::loadNativeCSVFile(QString filename, QVector<CommFrame>* frames
                     for (int d = 0; d < lng; d++)
                         bytes[d] = static_cast<char>(tokens[6 + d].toInt(nullptr, 16));
                     thisFrame.setPayload(bytes);
-                    //flags column after the max(8, LEN) data columns: "FD", "FD+BRS", ... (empty for classic CAN).
-                    //More than 8 bytes can only be CAN FD, even if a file has no flags column.
+                    //flags column after the max(8, LEN) data columns: "FD", "FD+BRS", ... or "LIN..." (empty for
+                    //classic CAN). More than 8 bytes can only be CAN FD, even if a file has no flags column.
                     int flagsIdx = 6 + qMax(8, lng);
                     QByteArray flags = (flagsIdx < tokens.length()) ? tokens[flagsIdx].trimmed().toUpper() : QByteArray();
-                    if (flags.startsWith("FD") || lng > 8)
+                    if (LinFormat::isCsvFlags(flags))
+                    {
+                        LinFormat::applyCsvFlags(thisFrame, flags);
+                    }
+                    else if (flags.startsWith("FD") || lng > 8)
                     {
                         thisFrame.setFlexibleDataRateFormat(true);
                         thisFrame.setBitrateSwitch(flags.contains("BRS"));

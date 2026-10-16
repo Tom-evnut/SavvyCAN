@@ -8,6 +8,7 @@
 #include <QDateTime>
 #include <QSettings>
 #include "utility.h"
+#include "linformat.h"
 
 CommFrameModel::~CommFrameModel()
 {
@@ -393,7 +394,8 @@ void CommFrameModel::recalcOverwrite()
     uint64_t idAugmented; //id in lower 29 bits, bus number shifted up 29 bits
     foreach(CommFrame frame, frames)
     {
-        if (!frame.isDataFrame()) continue; //CAN and CAN FD data frames
+        //CAN, CAN FD and LIN frames (LIN headers with no response too: an ID nobody answers still exists)
+        if (!frame.isDataFrame() && !frame.isLin()) continue;
 
         idAugmented = frame.frameId();
         idAugmented = idAugmented + (frame.getBus() << 29ull);
@@ -550,7 +552,7 @@ QVariant CommFrameModel::data(const QModelIndex &index, int role) const
                 tempString = "F";
                 break;
             case CommFrame::FrameType::LINDataFrame:
-                tempString = "L";
+                tempString = LinFormat::typeLabel(thisFrame); //LN: no response, !: checksum, parity or device error
                 break;
             case CommFrame::FrameType::ErrorFrame:
                 tempString = "E";
