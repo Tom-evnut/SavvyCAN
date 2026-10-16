@@ -15,6 +15,31 @@ collin80/SavvyCAN#1141) and the other open pull requests `fork-ci` carried.
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
 *Fork Build (Linux + Windows)* runs under **Actions**.
 
+## `fork-ci-lin`: LIN support
+
+`fork-ci-lin` is `fork-ci` with the LIN branches merged; CI builds it on every push, like `fork-ci`. None of it is
+upstream yet. [docs/lin-roadmap.md](docs/lin-roadmap.md) has the plan, every LIN branch, what the hardware
+confirmed and what's left.
+
+| Area | What `fork-ci-lin` adds | Branch |
+|---|---|---|
+| Interfaces | Microchip APGDT001 LIN Serial Analyzer (hidapi): monitor and master, confirmed on the device. PEAK LIN (PLIN-USB, PCAN-USB Pro / Pro FD, Windows, PLinApi.dll loaded at run time): monitor and master, not tried on a device | `lin-phase1-model`, `lin-peak`, `lin-send` |
+| Display | `L`, `LN` (header nobody answered) and `!` (errors) in the frame list; LIN section in Frame Details | `lin-phase1-model` |
+| Decoding | LDF files in the DBC manager (LIN 1.3 to 2.2A, J2602); DBC/LDF messages match frame type, so LIN and CAN IDs don't mix, in graphs, the signal viewer and filter labels too | `lin-phase2-ldf`, `lin-id-lookup` |
+| Sending | As LIN master from Send Frames, scripts and playback; LDF schedule tables run by Send Frames > LIN Schedule Runner | `lin-send`, `lin-schedule` |
+| Files | Native CSV LIN flags; LIN text logs; File > Treat Frames as LIN; BLF save (CAN, CAN FD, LIN) and LIN load; Wireshark LIN load and pcapng save (CAN, CAN FD, LIN); a warning before saving LIN frames to a format that can't mark them | `lin-phase1-model`, `lin-phase2-ldf`, `blf-save`, `lin-blf`, `lin-blf-events`, `lin-pcap`, `lin-save-warning` |
+| RE tools | RE Tools > LIN Schedule Analysis: per-ID periods and response rates, the schedule table worked out from a capture | `lin-schedule-analysis` |
+
+**Fixes found on the way** that also apply to CAN (they're in the LIN branches for now):
+
+- BLF loading: channels were taken as 0-based; objects split across containers, and short final objects, were
+  misread; direction was never read; timestamps lost their sub-microsecond rounding; the file handle leaked
+  (`blf-save`, `lin-blf`).
+- `DBCHandler::loadDBCFile()` returned the previously loaded file when a load failed (`lin-phase2-ldf`).
+- pcap/pcapng loading: packets over 256 bytes overran the buffer; pcapng files never matched a link type; pcapng
+  timestamps lost a microsecond, and base-2 resolutions weren't recognised; a capture starting at time 0 took its
+  second packet as the start (`lin-pcap`).
+
 ## How this file is kept
 
 Every fix or new feature that lands on `fork-ci` gets:
