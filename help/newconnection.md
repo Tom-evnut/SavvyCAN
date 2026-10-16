@@ -63,6 +63,13 @@ LIN captures from files that don't mark their frames as LIN (CSV files from othe
 
 The protocol SavvyCAN uses to talk to the analyzer was worked out from Microchip's demo software and hasn't been checked on every analyzer; if something looks wrong, the debug console output helps.
 
+Connecting to a PEAK LIN interface (LIN)
+========================================
+
+PEAK's LIN interfaces (PLIN-USB, and the LIN channels of the PCAN-USB Pro FD and PCAN-USB Pro) capture LIN traffic through PEAK's PLIN driver. Install the PLIN driver from peak-system.com: it brings PLinApi.dll, which SavvyCAN uses. Select "PEAK LIN (PLIN-USB, PCAN-USB Pro / Pro FD)": the port list shows each LIN channel as "name, device n, channel m", and an empty port means the first one found. Without the driver the option is greyed out and its tooltip says why. This works on Windows only so far.
+
+The connection has one LIN bus, bus 0, and only listens (monitor mode): the channel is set up as a LIN slave that receives every frame ID and never answers. Set the bit rate in the bus settings (1000 to 20000 bit/s, 19200 to start with). Frames show as described for the Microchip analyzer above, with the checksum checked, the checksum model worked out per ID, and PEAK's error flags (sync, parity, incomplete response, bus shorts) shown as errors. Timestamps come from the interface, in microseconds. Sleep and wake-up events and overruns are counted in the debug console.
+
 Connecting over MQTT
 ====================
 

@@ -26,6 +26,7 @@ namespace CANCon {
         CANLOGSERVER,
         //saved connections store these as numbers: a fixed value keeps this one's whatever other branches add above
         APGDT001 = 20,
+        PEAKLIN = 21,
         NONE
     };
 }

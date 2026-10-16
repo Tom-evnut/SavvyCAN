@@ -142,6 +142,21 @@ target_link_libraries(TestLdf
     Qt6::Widgets
 )
 
+###### PEAK LIN test ######
+add_executable(TestPlin
+    test_plin.cpp
+    ../connections/plinmonitor.cpp  # the class under test
+    ../connections/plindll.cpp      # without the PEAK driver: checks it fails cleanly, and its struct layouts
+)
+
+target_include_directories(TestPlin PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestPlin
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 ###### CANBus test ######
 add_executable(TestCanBus
     test_canbus.cpp
@@ -167,3 +182,4 @@ add_test(NAME TestCanBus COMMAND TestCanBus)
 add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
 add_test(NAME TestLinFormat COMMAND TestLinFormat)
 add_test(NAME TestLdf COMMAND TestLdf)
+add_test(NAME TestPlin COMMAND TestPlin)
