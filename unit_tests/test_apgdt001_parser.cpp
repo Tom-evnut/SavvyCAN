@@ -29,6 +29,7 @@ private slots:
     void testTimerRollover();
     void testNoMarkerUsesHostTime();
     void testMeasuredBaudAndScriptStatus();
+    void testStatusReply();
     void testReset();
 
 private:
@@ -298,9 +299,27 @@ void TestApgdt001Parser::testNoMarkerUsesHostTime()
 
 void TestApgdt001Parser::testMeasuredBaudAndScriptStatus()
 {
-    feed({stream(QByteArray::fromHex("85004B") + QByteArray::fromHex("1C77") + QByteArray::fromHex("1C01"))});
-    QCOMPARE(parser.measuredBaud(), 19200);
+    QCOMPARE(parser.measuredBaud(), 0);
+    // divisor 259: 5 MHz / 260 = 19231 bit/s (19200 nominal)
+    feed({stream(QByteArray::fromHex("850301") + QByteArray::fromHex("1C77") + QByteArray::fromHex("1C01"))});
+    QCOMPARE(parser.measuredBaud(), 19231);
     QCOMPARE(parser.scriptsFinished(), 1ull);
+}
+
+void TestApgdt001Parser::testStatusReply()
+{
+    QByteArray block;
+    for (int i = 0; i < Apgdt001Parser::STATUS_BLOCK_SIZE; i++) block.append(char(0xA0 + i));
+    QByteArray p81 = QByteArray::fromHex("810102");
+    QByteArray p82 = QByteArray(1, char(0x82)) + block;
+    QByteArray p83 = QByteArray(1, char(0x83)) + QByteArray(20, '\x11');
+    QByteArray p84 = QByteArray(1, char(0x84)) + QByteArray(6, '\x22');
+    QVERIFY(parser.lastStatusBlock().isEmpty());
+    feed({p81, p82, p83, p84});
+    QCOMPARE(parser.lastStatusBlock(), block);
+    QCOMPARE(parser.statusReplies(), 1ull);
+    QCOMPARE(parser.statusPackets(), 4ull);
+    QCOMPARE(frames.size(), 0);
 }
 
 void TestApgdt001Parser::testReset()

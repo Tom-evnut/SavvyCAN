@@ -8,7 +8,13 @@ void Apgdt001Parser::reset()
     mRollovers = 0;
     mHaveMarker = false;
     mHaveOffset = false;
-    mMeasuredBaud = 0;
+    mMeasuredDivisor = -1;
+    mStatusBlock.clear();
+}
+
+int Apgdt001Parser::measuredBaud() const
+{
+    return mMeasuredDivisor < 0 ? 0 : (BAUD_CLOCK + (mMeasuredDivisor + 1) / 2) / (mMeasuredDivisor + 1);
 }
 
 //Length of the tag at the start of tag, operands included: -1 for an unknown tag, 0 if more bytes are needed to tell.
@@ -145,8 +151,8 @@ void Apgdt001Parser::processStream(QList<CommFrame> &frames, QList<QPair<int, qi
         case 0x14: //event timer rollover
             mRollovers++;
             break;
-        case 0x85: //measured bit rate
-            mMeasuredBaud = tag[1] | (tag[2] << 8);
+        case 0x85: //measured bit rate, as a divisor
+            mMeasuredDivisor = tag[1] | (tag[2] << 8);
             break;
         case 0x82: //status error
             mStatusErrors++;
@@ -197,9 +203,15 @@ int Apgdt001Parser::feed(const char *report, int len, CommFrame::TimeStamp hostT
             i = len;
             continue;
         case 0x81: size = 3; break;
-        case 0x82: size = 25; break;
+        case 0x82: //configuration block echo
+            size = 1 + STATUS_BLOCK_SIZE;
+            if (i + size <= len) mStatusBlock = QByteArray(report + i + 1, STATUS_BLOCK_SIZE);
+            break;
         case 0x83: size = 21; break;
-        case 0x84: size = 7; break;
+        case 0x84: //last packet of a status reply
+            size = 7;
+            if (i + size <= len) mStatusReplies++;
+            break;
         case 0x88: size = 2; break;
         case 0x85: case 0x86: case 0x87: //receive stream
             if (i + 2 > len || i + 2 + r[i + 1] > len)
@@ -209,6 +221,7 @@ int Apgdt001Parser::feed(const char *report, int len, CommFrame::TimeStamp hostT
                 continue;
             }
             mStream.append(report + i + 2, r[i + 1]);
+            mStreamBytes += r[i + 1];
             i += 2 + r[i + 1];
             continue;
         default:

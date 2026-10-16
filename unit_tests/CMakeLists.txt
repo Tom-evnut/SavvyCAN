@@ -85,6 +85,21 @@ target_link_libraries(TestApgdt001Parser
     Qt6::SerialBus
 )
 
+###### APGDT001 session test ######
+add_executable(TestApgdt001Session
+    test_apgdt001_session.cpp
+    ../connections/apgdt001session.cpp  # the class under test
+    ../connections/apgdt001parser.cpp
+)
+
+target_include_directories(TestApgdt001Session PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestApgdt001Session
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 ###### CANBus test ######
 add_executable(TestCanBus
     test_canbus.cpp
@@ -107,3 +122,4 @@ add_test(NAME TestUdsHandler COMMAND TestUdsHandler)
 add_test(NAME TestLinFrame COMMAND TestLinFrame)
 add_test(NAME TestApgdt001Parser COMMAND TestApgdt001Parser)
 add_test(NAME TestCanBus COMMAND TestCanBus)
+add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)

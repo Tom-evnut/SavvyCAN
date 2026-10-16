@@ -12,7 +12,10 @@
  *
  * Each 64-byte input report holds packets, each starting with a type byte:
  *   0x80                end of the report
- *   0x81 0x82 0x83 0x84 0x88   status packets of 3, 25, 21, 7 and 2 bytes (type byte included); counted, not decoded
+ *   0x81 0x82 0x83 0x84 status packets of 3, 25, 21 and 7 bytes (type byte included), the device's reply to a status
+ *                       request: 0x82 carries the first 24 bytes of its configuration block (kept: lastStatusBlock()),
+ *                       and 0x84 ends the reply (counted: statusReplies())
+ *   0x88                a 2-byte packet, skipped
  *   0x85 0x86 0x87      [type][n][n bytes of receive stream]
  *
  * The receive stream is a sequence of tags, which can be split across reports:
@@ -20,7 +23,7 @@
  *   0x10 b              a byte from the bus: the protected ID first, then the response's data bytes and checksum
  *   0x13 lo hi          event timer, in TICK_US ticks; the first one after a break timestamps the frame
  *   0x14                event timer rollover (65536 ticks)
- *   0x85 lo hi          bit rate the device measured
+ *   0x85 lo hi          bit rate the device measured, as a divisor: 5 MHz / (divisor + 1)
  *   0x82 s              status error: the frame being built ends, flagged LinErrDevice
  *   0x1C s              script status (0x77 = a script, e.g. a transmit, finished)
  *   0x11 n [n bytes]    a block of bytes, not frame data
@@ -44,6 +47,8 @@ class Apgdt001Parser
 {
 public:
     static constexpr int REPORT_SIZE = 64;
+    static constexpr int STATUS_BLOCK_SIZE = 24;   //configuration block bytes echoed in a 0x82 status packet
+    static constexpr int BAUD_CLOCK = 5000000;     //bit rate = BAUD_CLOCK / (divisor + 1), set and measured
     static constexpr int TICK_US = 409;            //event timer tick (Microchip's library: 0.409 ms; to confirm)
     static constexpr int MAX_FRAME_BYTES = 1 + CommFrame::LIN_MAX_PAYLOAD + 1; //protected ID, data, checksum
     static constexpr qint64 REANCHOR_US = 1000000;
@@ -55,7 +60,11 @@ public:
     int flush(CommFrame::TimeStamp hostTimestamp, QList<CommFrame> &frames);
     void reset(); //new connection: drops the frame being built, buffered stream bytes and the clock mapping
 
-    int measuredBaud() const { return mMeasuredBaud; } //0 until the device reports one
+    bool isBuildingFrame() const { return mBuilding; }
+    int measuredBaud() const; //bit rate the device last measured, 0 until it reports one
+    QByteArray lastStatusBlock() const { return mStatusBlock; } //empty until a status reply arrives
+    quint64 statusReplies() const { return mStatusReplies; }
+    quint64 streamBytes() const { return mStreamBytes; } //receive stream bytes seen, to tell when the bus is quiet
     quint64 framesParsed() const { return mFramesParsed; }
     quint64 headerOnlyFrames() const { return mHeaderOnlyFrames; }
     quint64 checksumErrorFrames() const { return mChecksumErrorFrames; }
@@ -93,7 +102,10 @@ private:
     bool mHaveOffset = false;
     qint64 mOffsetUs = 0;       //host time = device time + offset
 
-    int mMeasuredBaud = 0;
+    int mMeasuredDivisor = -1;
+    QByteArray mStatusBlock;
+    quint64 mStatusReplies = 0;
+    quint64 mStreamBytes = 0;
     quint64 mFramesParsed = 0;
     quint64 mHeaderOnlyFrames = 0;
     quint64 mChecksumErrorFrames = 0;

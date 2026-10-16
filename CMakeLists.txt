@@ -14,6 +14,7 @@ set(CMAKE_AUTOUIC_SEARCH_PATHS ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 option(USE_DBUS "Enable DBus support" OFF)
 option(BUILD_TESTS "Build test target" OFF)
 option(USE_SANITIZER "Enable sanitizers for Debug builds" OFF)
+option(USE_HIDAPI "APGDT001 (LIN over USB HID) support, if hidapi is found" ON)
 
 find_package(Qt6 ${QT_MIN_VERSION} CONFIG REQUIRED COMPONENTS Core Gui PrintSupport SerialBus SerialPort Widgets Help Network OpenGL Qml)
 find_package(OpenGL REQUIRED)
@@ -55,7 +56,9 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     canfilter.cpp canfilter.h
     canframemodel.cpp canframemodel.h
     config.h
+    connections/apgdt001.cpp connections/apgdt001.h
     connections/apgdt001parser.cpp connections/apgdt001parser.h
+    connections/apgdt001session.cpp connections/apgdt001session.h
     connections/canbus.cpp connections/canbus.h
     connections/canconconst.h
     connections/canconfactory.cpp connections/canconfactory.h
@@ -187,6 +190,36 @@ target_link_libraries(SavvyCAN PRIVATE
 
 if(USE_DBUS AND UNIX AND NOT APPLE)
     target_link_libraries(SavvyCAN PRIVATE Qt6::DBus)
+endif()
+
+# hidapi for the APGDT001 connection: pkg-config first (hidapi-hidraw on Linux, hidapi elsewhere), then a plain
+# search (vcpkg, or set HIDAPI_INCLUDE_DIR/HIDAPI_LIBRARY by hand). Without it, SavvyCAN builds without APGDT001
+# support.
+if(USE_HIDAPI)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+        pkg_check_modules(HIDAPI QUIET IMPORTED_TARGET hidapi-hidraw)
+        if(NOT HIDAPI_FOUND)
+            pkg_check_modules(HIDAPI QUIET IMPORTED_TARGET hidapi)
+        endif()
+    endif()
+    if(HIDAPI_FOUND)
+        target_link_libraries(SavvyCAN PRIVATE PkgConfig::HIDAPI)
+    else()
+        find_path(HIDAPI_INCLUDE_DIR hidapi.h PATH_SUFFIXES hidapi)
+        find_library(HIDAPI_LIBRARY NAMES hidapi-hidraw hidapi)
+        if(HIDAPI_INCLUDE_DIR AND HIDAPI_LIBRARY)
+            set(HIDAPI_FOUND TRUE)
+            target_include_directories(SavvyCAN PRIVATE ${HIDAPI_INCLUDE_DIR})
+            target_link_libraries(SavvyCAN PRIVATE ${HIDAPI_LIBRARY})
+        endif()
+    endif()
+    if(HIDAPI_FOUND)
+        target_compile_definitions(SavvyCAN PRIVATE HAVE_HIDAPI)
+        message(STATUS "hidapi found: APGDT001 support enabled")
+    else()
+        message(STATUS "hidapi not found: APGDT001 support disabled")
+    endif()
 endif()
 
 if(WIN32)
