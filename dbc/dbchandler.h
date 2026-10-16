@@ -87,6 +87,10 @@ public:
     bool getDirtyFlag();
     void clearDirtyFlag();
     void sort();
+    //a LIN file (an LDF, or a DBC whose BusType attribute is "LIN"): its messages only match LIN frames, and the
+    //messages of other files only CAN (and FlexRay) frames
+    bool isLin() const { return mLin; }
+    void setLin(bool lin); //sets the BusType attribute too, so a saved DBC keeps it
 
     DBCMessageHandler *messageHandler;
     QList<DBC_NODE *> dbc_nodes;
@@ -94,7 +98,10 @@ public:
     QList<DBC_ATTRIBUTE> dbc_attributes;
 private:
     void syncCanFDAttributes();
+    void refreshBusType(); //mLin from the BusType attribute
+    bool loadLdfFile(QString fileName);
 
+    bool mLin = false;
     QString fileName;
     QString filePath;
     int assocBuses; //-1 = all buses, 0 = first bus, 1 = second bus, etc.

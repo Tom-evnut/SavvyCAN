@@ -24,6 +24,8 @@ namespace CANCon {
         LAWICEL,
         CANSERVER,
         CANLOGSERVER,
+        //saved connections store these as numbers: a fixed value keeps this one's whatever other branches add above
+        APGDT001 = 20,
         NONE
     };
 }

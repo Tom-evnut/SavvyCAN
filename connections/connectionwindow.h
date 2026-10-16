@@ -65,7 +65,10 @@ private:
     QVector<QString> remoteDeviceIPGVRET;
     QVector<QString> remoteDeviceKayak;
 
-    CANConnection* create(CANCon::type pTye, QString pPortName, QString pDriver, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly = false, bool pActive = true);
+    CANConnection* create(CANCon::type pTye, QString pPortName, QString pDriver, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly = false, bool pActive = true,
+                          CANBus::LinMode pLinMode = CANBus::LinMode::Monitor,
+                          CommFrame::LinChecksumModel pLinChecksum = CommFrame::LinChecksumUnknown);
+    void fillBusSpeeds(bool lin);
     void populateBusDetails(int offset);
     void loadConnections();
     void saveConnections();

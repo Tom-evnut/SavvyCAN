@@ -1,6 +1,7 @@
 #include <QCanBus>
 #include "newconnectiondialog.h"
 #include "ui_newconnectiondialog.h"
+#include "apgdt001.h"
 
 NewConnectionDialog::NewConnectionDialog(QVector<QString>* gvretips, QVector<QString>* kayakhosts, QWidget *parent) :
     QDialog(parent),
@@ -30,6 +31,12 @@ NewConnectionDialog::NewConnectionDialog(QVector<QString>* gvretips, QVector<QSt
     connect(ui->rbLawicel, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
     connect(ui->rbCANserver, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
     connect(ui->rbCanlogserver, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
+    connect(ui->rbApgdt001, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
+    if (!Apgdt001::isAvailable())
+    {
+        ui->rbApgdt001->setEnabled(false);
+        ui->rbApgdt001->setToolTip(tr("This SavvyCAN was built without hidapi"));
+    }
 
     connect(ui->cbDeviceType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewConnectionDialog::handleDeviceTypeChanged);
     connect(ui->btnOK, &QPushButton::clicked, this, &NewConnectionDialog::handleCreateButton);
@@ -70,6 +77,7 @@ void NewConnectionDialog::handleConnTypeChanged()
     if (ui->rbMQTT->isChecked()) selectMQTT();
     if (ui->rbCANserver->isChecked()) selectCANserver();
     if (ui->rbCanlogserver->isChecked()) selectCANlogserver();
+    if (ui->rbApgdt001->isChecked()) selectApgdt001();
 }
 
 void NewConnectionDialog::handleDeviceTypeChanged()
@@ -256,6 +264,25 @@ void NewConnectionDialog::selectCANlogserver()
     ui->cbPort->clear();
 }
 
+void NewConnectionDialog::selectApgdt001()
+{
+    //the LIN bit rate is set in the bus settings once connected (19200 to start with)
+    ui->lPort->setText("Device serial number (empty: first one found):");
+
+    ui->lblDeviceType->setHidden(true);
+    ui->cbDeviceType->setHidden(true);
+    ui->cbCANSpeed->setHidden(true);
+    ui->cbSerialSpeed->setHidden(true);
+    ui->lblCANSpeed->setHidden(true);
+    ui->lblSerialSpeed->setHidden(true);
+    ui->cbCanFd->setHidden(true);
+    ui->cbDataRate->setHidden(true);
+    ui->lblDataRate->setHidden(true);
+
+    ui->cbPort->clear();
+    ui->cbPort->addItems(Apgdt001::availableDevices());
+}
+
 void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QString pDriver)
 {
 
@@ -284,6 +311,9 @@ void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QSt
           break;
         case CANCon::CANLOGSERVER:
           ui->rbCanlogserver->setChecked(true);
+          break;
+        case CANCon::APGDT001:
+          ui->rbApgdt001->setChecked(true);
           break;
         default: {}
     }
@@ -330,6 +360,7 @@ void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QSt
             break;
         case CANCon::CANSERVER:
         case CANCon::CANLOGSERVER:
+        case CANCon::APGDT001:
         {
             ui->cbPort->setCurrentText(pPortName);
             break;
@@ -351,6 +382,7 @@ QString NewConnectionDialog::getPortName()
         return ui->cbPort->currentText();
     case CANCon::CANSERVER:
     case CANCon::CANLOGSERVER:
+    case CANCon::APGDT001:
         return ui->cbPort->currentText();
 
     default:
@@ -429,6 +461,7 @@ CANCon::type NewConnectionDialog::getConnectionType()
     if (ui->rbLawicel->isChecked()) return CANCon::LAWICEL;
     if (ui->rbCANserver->isChecked()) return CANCon::CANSERVER;
     if (ui->rbCanlogserver->isChecked()) return CANCon::CANLOGSERVER;
+    if (ui->rbApgdt001->isChecked()) return CANCon::APGDT001;
     qDebug() << "getConnectionType: error";
 
     return CANCon::NONE;

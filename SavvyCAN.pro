@@ -25,6 +25,9 @@ ICON = icons/SavvyIcon.icns
 
 SOURCES += main.cpp\
     canbridgewindow.cpp \
+    connections/apgdt001.cpp \
+    connections/apgdt001parser.cpp \
+    connections/apgdt001session.cpp \
     connections/canlogserver.cpp \
     connections/canserver.cpp \
     connections/lawicel_serial.cpp \
@@ -73,6 +76,8 @@ SOURCES += main.cpp\
     dbc/dbcmessageeditor.cpp \
     dbc/dbc_classes.cpp \
     dbc/dbchandler.cpp \
+    dbc/ldfparser.cpp \
+    dbc/ldftodbc.cpp \
     dbc/dbcloadsavewindow.cpp \
     dbc/dbcmaineditor.cpp \
     dbc/dbcnodeeditor.cpp \
@@ -110,6 +115,9 @@ SOURCES += main.cpp\
 HEADERS  += mainwindow.h \
     can_structs.h \
     canbridgewindow.h \
+    connections/apgdt001.h \
+    connections/apgdt001parser.h \
+    connections/apgdt001session.h \
     canframemodel.h \
     connections/canlogserver.h \
     connections/canserver.h \
@@ -168,6 +176,8 @@ HEADERS  += mainwindow.h \
     re/sniffer/snifferwindow.h \
     dbc/dbc_classes.h \
     dbc/dbchandler.h \
+    dbc/ldfparser.h \
+    dbc/ldftodbc.h \
     dbc/dbcloadsavewindow.h \
     dbc/dbcmaineditor.h \
     dbc/dbcsignaleditor.h \
@@ -245,6 +255,17 @@ RESOURCES += \
 
 win32-msvc* {
    LIBS += opengl32.lib
+}
+
+# hidapi for the APGDT001 connection (optional: without it SavvyCAN builds without APGDT001 support)
+packagesExist(hidapi-hidraw) {
+   CONFIG += link_pkgconfig
+   PKGCONFIG += hidapi-hidraw
+   DEFINES += HAVE_HIDAPI
+} else:packagesExist(hidapi) {
+   CONFIG += link_pkgconfig
+   PKGCONFIG += hidapi
+   DEFINES += HAVE_HIDAPI
 }
 
 win32-g++ {

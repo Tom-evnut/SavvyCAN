@@ -5,6 +5,7 @@
 #include <QtDebug>
 #include <vector>
 #include "filterutility.h"
+#include "linformat.h"
 #include "qcpaxistickerhex.h"
 
 const QColor FrameInfoWindow::byteGraphColors[64] = {
@@ -525,6 +526,20 @@ void FrameInfoWindow::updateDetailsWindow(QString newID)
         tempItem = new QTreeWidgetItem();
         tempItem->setText(0, tr("# of frames: ") + QString::number(frameCache.count(),10));
         baseNode->addChild(tempItem);
+
+        const QStringList linLines = LinFormat::summary(frameCache); //protected ID, checksum model, errors
+        if (!linLines.isEmpty())
+        {
+            QTreeWidgetItem *linBase = new QTreeWidgetItem();
+            linBase->setText(0, tr("LIN"));
+            for (const QString &line : linLines)
+            {
+                tempItem = new QTreeWidgetItem();
+                tempItem->setText(0, line);
+                linBase->addChild(tempItem);
+            }
+            baseNode->addChild(linBase);
+        }
 
         //clear out all the counters and accumulators
         minLen = 8;

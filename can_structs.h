@@ -173,8 +173,160 @@ public:
         }
     }
 
-    //A frame carrying data: classic CAN or CAN FD (as opposed to remote, error, LIN, ...)
-    constexpr bool isDataFrame() const noexcept { return format == 0x0 || format == 0x1; }
+    //A frame carrying data: classic CAN, CAN FD or a LIN frame with a response (as opposed to remote, error, a LIN
+    //header nobody answered, ...)
+    bool isDataFrame() const noexcept
+    {
+        return format == 0x0 || format == 0x1 || (format == 0x3 && !dataBytes.isEmpty());
+    }
+
+    /*
+     * LIN frames: the frame ID is the 6-bit LIN frame ID (0-63, never extended) and the payload is the response's data
+     * bytes (0-8). An empty payload is a header that got no response. The protected ID (ID + 2 parity bits) is computed
+     * from the frame ID; a received protected ID is kept only to flag parity errors.
+     */
+    static constexpr int LIN_MAX_PAYLOAD = 8;
+    static constexpr quint8 LIN_ID_MASTER_REQUEST = 0x3C; //diagnostics, always classic checksum
+    static constexpr quint8 LIN_ID_SLAVE_RESPONSE = 0x3D;
+    constexpr bool isLin() const noexcept { return format == 0x3; }
+    bool isLinHeaderOnly() const noexcept { return format == 0x3 && dataBytes.isEmpty(); }
+
+    enum LinChecksumModel {
+        LinChecksumUnknown  = 0,
+        LinChecksumClassic  = 1, //data bytes only (LIN 1.x, and diagnostic frames)
+        LinChecksumEnhanced = 2  //protected ID + data bytes (LIN 2.x)
+    };
+    enum LinPublisher {
+        LinPublisherUnknown = 0,
+        LinPublisherMaster  = 1, //the master sent the response
+        LinPublisherSlave   = 2
+    };
+    //errors the device reports (checksum and parity errors have their own checks below)
+    enum LinError : quint8 {
+        LinNoError              = 0,
+        LinErrNoResponse        = (1 << 0), //a response was expected (e.g. by the device acting as master) but none came
+        LinErrIncompleteResponse = (1 << 1), //fewer bytes than expected
+        LinErrSync              = (1 << 2), //bad break or sync field
+        LinErrFraming           = (1 << 3), //missing stop bit
+        LinErrCollision         = (1 << 4), //several slaves answered (event-triggered frames)
+        LinErrParity            = (1 << 5), //protected ID parity error, as reported by the device
+        LinErrBit               = (1 << 6), //read back a different bit than sent
+        LinErrDevice            = (1 << 7)  //the device flagged an error without saying which
+    };
+
+    //protected ID for a frame ID: P0 = ID0^ID1^ID2^ID4 (bit 6), P1 = !(ID1^ID3^ID4^ID5) (bit 7)
+    static constexpr quint8 linPidFromId(quint8 id) noexcept
+    {
+        id &= 0x3F;
+        const quint8 p0 = ((id >> 0) ^ (id >> 1) ^ (id >> 2) ^ (id >> 4)) & 0x1;
+        const quint8 p1 = ~((id >> 1) ^ (id >> 3) ^ (id >> 4) ^ (id >> 5)) & 0x1;
+        return quint8(id | (p0 << 6) | (p1 << 7));
+    }
+    static constexpr bool linPidParityOk(quint8 pid) noexcept { return linPidFromId(pid & 0x3F) == pid; }
+
+    //LIN checksum: inverted 8-bit sum with carry wrap-around, over the data (classic) or the protected ID and the data
+    //(enhanced). Diagnostic frames always use the classic checksum, whatever the model asked for.
+    static quint8 linChecksum(const QByteArray &data, quint8 id, LinChecksumModel model) noexcept
+    {
+        unsigned int sum = 0;
+        if (model == LinChecksumEnhanced && (id & 0x3F) != LIN_ID_MASTER_REQUEST && (id & 0x3F) != LIN_ID_SLAVE_RESPONSE)
+            sum = linPidFromId(id);
+        for (char c : data) {
+            sum += quint8(c);
+            if (sum > 0xFF) sum -= 0xFF;
+        }
+        return quint8(~sum);
+    }
+
+    /*
+     * LIN details from the capture device, kept with the frame (none for frames loaded from most logs). Laid out like
+     * the FlexRay header details on the FlexRay branches: one packed field with accessors.
+     */
+    void setLinChecksum(quint8 checksum)
+    {
+        linInfo = (linInfo & ~(quint64(0xFF) << LIN_CS_SHIFT)) | LIN_HAS_CHECKSUM | (quint64(checksum) << LIN_CS_SHIFT);
+    }
+    void setLinChecksumModel(LinChecksumModel model)
+    {
+        linInfo = (linInfo & ~(quint64(0x3) << LIN_MODEL_SHIFT)) | (quint64(model & 0x3) << LIN_MODEL_SHIFT);
+    }
+    //for a checksum the device checked; verifyLinChecksum() checks it here instead
+    void setLinChecksumStatus(bool ok)
+    {
+        linInfo = (linInfo & ~LIN_CHECKSUM_OK) | LIN_CHECKSUM_CHECKED | (ok ? LIN_CHECKSUM_OK : 0);
+    }
+    //the protected ID as received, to flag parity errors
+    void setLinReceivedPid(quint8 pid)
+    {
+        linInfo = (linInfo & ~(quint64(0xFF) << LIN_PID_SHIFT)) | LIN_HAS_PID | (quint64(pid) << LIN_PID_SHIFT);
+    }
+    void setLinPublisher(LinPublisher publisher)
+    {
+        linInfo = (linInfo & ~(quint64(0x3) << LIN_PUB_SHIFT)) | (quint64(publisher & 0x3) << LIN_PUB_SHIFT);
+    }
+    void setLinErrors(quint8 errors)
+    {
+        linInfo = (linInfo & ~(quint64(0xFF) << LIN_ERR_SHIFT)) | (quint64(errors) << LIN_ERR_SHIFT);
+    }
+    void setLinDeviceTimestamp(bool fromDevice)
+    {
+        linInfo = fromDevice ? (linInfo | LIN_DEVICE_TIME) : (linInfo & ~LIN_DEVICE_TIME);
+    }
+    void clearLinInfo() { linInfo = 0; }
+
+    /*
+     * Checks the received checksum against the payload. With an unknown model, the model that matches is kept (the
+     * classic and enhanced checksums of a response always differ), which tells you the ID's checksum model.
+     * Returns false when there's nothing to check (not LIN, no response or no checksum received).
+     */
+    bool verifyLinChecksum()
+    {
+        if (!isLin() || dataBytes.isEmpty() || !hasLinChecksum())
+            return false;
+        const quint8 id = quint8(frameId());
+        LinChecksumModel model = linChecksumModel();
+        if (model == LinChecksumUnknown) {
+            if (linChecksum(dataBytes, id, LinChecksumClassic) == linChecksumByte())
+                model = LinChecksumClassic;
+            else if (linChecksum(dataBytes, id, LinChecksumEnhanced) == linChecksumByte())
+                model = LinChecksumEnhanced;
+            if (model != LinChecksumUnknown)
+                setLinChecksumModel(model);
+            setLinChecksumStatus(model != LinChecksumUnknown);
+            return true;
+        }
+        setLinChecksumStatus(linChecksum(dataBytes, id, model) == linChecksumByte());
+        return true;
+    }
+
+    constexpr bool hasLinChecksum() const noexcept { return linInfo & LIN_HAS_CHECKSUM; }
+    constexpr quint8 linChecksumByte() const noexcept { return quint8((linInfo >> LIN_CS_SHIFT) & 0xFF); }
+    constexpr LinChecksumModel linChecksumModel() const noexcept
+    {
+        return LinChecksumModel((linInfo >> LIN_MODEL_SHIFT) & 0x3);
+    }
+    constexpr bool linChecksumChecked() const noexcept { return linInfo & LIN_CHECKSUM_CHECKED; }
+    constexpr bool linChecksumOk() const noexcept { return linInfo & LIN_CHECKSUM_OK; }
+    //checked (by the device or verifyLinChecksum()) and failed
+    constexpr bool hasLinChecksumError() const noexcept { return linChecksumChecked() && !linChecksumOk(); }
+    constexpr bool hasLinReceivedPid() const noexcept { return linInfo & LIN_HAS_PID; }
+    //the protected ID as received, or computed from the frame ID when none was kept
+    constexpr quint8 linPid() const noexcept
+    {
+        return hasLinReceivedPid() ? quint8((linInfo >> LIN_PID_SHIFT) & 0xFF) : linPidFromId(quint8(msgId & 0x3F));
+    }
+    constexpr bool hasLinParityError() const noexcept
+    {
+        return (linErrors() & LinErrParity) || (hasLinReceivedPid() && !linPidParityOk(linPid()));
+    }
+    constexpr LinPublisher linPublisher() const noexcept { return LinPublisher((linInfo >> LIN_PUB_SHIFT) & 0x3); }
+    constexpr quint8 linErrors() const noexcept { return quint8((linInfo >> LIN_ERR_SHIFT) & 0xFF); }
+    //any error: device-reported, checksum or parity
+    constexpr bool hasLinError() const noexcept
+    {
+        return linErrors() != LinNoError || hasLinChecksumError() || hasLinParityError();
+    }
+    constexpr bool hasLinDeviceTimestamp() const noexcept { return linInfo & LIN_DEVICE_TIME; }
 
     constexpr QCanBusFrame::FrameType toQCanBusFrameType() noexcept
     {
@@ -285,11 +437,12 @@ public:
         isLocalEcho = !(received & 0x1);
     }
 
+    //more than 8 bytes makes a CAN frame CAN FD; other frame types (LIN, ...) keep their type
     void setPayload(const QByteArray &data)
     {
         dataBytes = data;
         if (data.size() > 8)
-            isFlexibleDataRate = 0x1;
+            setFlexibleDataRateFormat(true);
     }
 
     QByteArray payload() const { return dataBytes; }
@@ -327,6 +480,9 @@ public:
 
         // maximum permitted payload size in CAN or CAN FD
         const qsizetype length = dataBytes.size();
+        if (format == LINDataFrame) // 6-bit frame ID, response data only (none = header without response)
+            return !isExtendedFrame && msgId <= 0x3FU && length <= LIN_MAX_PAYLOAD;
+
         if (isFlexibleDataRate) {
             if (format == RemoteRequestFrame)
                 return false;
@@ -355,6 +511,20 @@ private:
     int bus;
     uint64_t timedelta;
     uint32_t frameCount; //used in overwrite mode
+
+    //LIN details (see setLinChecksum() and friends), packed: flags in bits 0-4, checksum model 5-6, publisher 7-8,
+    //checksum 9-16, received protected ID 17-24, device errors 25-32
+    static constexpr quint64 LIN_HAS_CHECKSUM = 1ull << 0;
+    static constexpr quint64 LIN_CHECKSUM_CHECKED = 1ull << 1;
+    static constexpr quint64 LIN_CHECKSUM_OK = 1ull << 2;
+    static constexpr quint64 LIN_DEVICE_TIME = 1ull << 3;
+    static constexpr quint64 LIN_HAS_PID = 1ull << 4;
+    static constexpr int LIN_MODEL_SHIFT = 5;
+    static constexpr int LIN_PUB_SHIFT = 7;
+    static constexpr int LIN_CS_SHIFT = 9;
+    static constexpr int LIN_PID_SHIFT = 17;
+    static constexpr int LIN_ERR_SHIFT = 25;
+    quint64 linInfo = 0;
 };
 
 

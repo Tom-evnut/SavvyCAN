@@ -228,6 +228,14 @@ int CANConnection::getSerialSpeed() const{
 }
 
 
+void CANConnection::presetLinSettings(CANBus::LinMode pMode, CommFrame::LinChecksumModel pChecksumModel)
+{
+    if (mNumBuses < 1) return;
+    mBusData[0].mBus.setLinMode(pMode);
+    mBusData[0].mBus.setLinChecksumModel(pChecksumModel);
+}
+
+
 bool CANConnection::isConfigured(int pBusId) {
     if( pBusId < 0 || pBusId >= getNumBuses())
         return false;

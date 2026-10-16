@@ -12,6 +12,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include "utility.h"
+#include "ldftodbc.h"
 
 DBCHandler* DBCHandler::instance = nullptr;
 
@@ -302,6 +303,7 @@ DBCFile::DBCFile(const DBCFile& cpy) : QObject()
     dbc_attributes.clear();
     dbc_attributes.append(cpy.dbc_attributes);
     isDirty = cpy.isDirty;
+    mLin = cpy.mLin;
 }
 
 void DBCFile::clearAndDelete(QList<DBC_NODE *>& list)
@@ -331,6 +333,7 @@ DBCFile& DBCFile::operator=(const DBCFile& cpy)
         dbc_value_tables.append(cpy.dbc_value_tables);
         dbc_attributes.clear();
         dbc_attributes.append(cpy.dbc_attributes);
+        mLin = cpy.mLin;
     }
     return *this;
 }
@@ -409,7 +412,7 @@ QString DBCFile::getFilename()
 
 QString DBCFile::getFilenameNoExt()
 {
-    return fileName.split(".dbc")[0];
+    return fileName.split(".dbc")[0].split(".ldf")[0];
 }
 
 QString DBCFile::getPath()
@@ -420,6 +423,47 @@ QString DBCFile::getPath()
 int DBCFile::getAssocBus()
 {
     return assocBuses;
+}
+
+//Vector's BusType network attribute ("CAN", "LIN", ...), as a STRING or an ENUM
+void DBCFile::refreshBusType()
+{
+    DBC_ATTRIBUTE *attr = findAttributeByName("BusType", ATTR_TYPE_GENERAL);
+    QString value;
+    if (attr) value = attr->valType == ATTR_ENUM ? attr->enumVals.value(attr->defaultValue.toInt())
+                                                 : attr->defaultValue.toString();
+    mLin = value.trimmed().compare("LIN", Qt::CaseInsensitive) == 0;
+}
+
+void DBCFile::setLin(bool lin)
+{
+    DBC_ATTRIBUTE *attr = findAttributeByName("BusType", ATTR_TYPE_GENERAL);
+    if (!attr)
+    {
+        DBC_ATTRIBUTE newAttr;
+        newAttr.name = "BusType";
+        newAttr.attrType = ATTR_TYPE_GENERAL;
+        newAttr.valType = ATTR_STRING;
+        newAttr.lower = 0;
+        newAttr.upper = 0;
+        dbc_attributes.append(newAttr);
+        attr = &dbc_attributes.last();
+    }
+    const QString wanted = lin ? "LIN" : "CAN";
+    if (attr->valType == ATTR_ENUM)
+    {
+        int idx = -1;
+        for (int i = 0; i < attr->enumVals.count(); i++)
+            if (attr->enumVals[i].trimmed().compare(wanted, Qt::CaseInsensitive) == 0) idx = i;
+        if (idx < 0)
+        {
+            attr->enumVals << wanted;
+            idx = attr->enumVals.count() - 1;
+        }
+        attr->defaultValue = idx;
+    }
+    else attr->defaultValue = wanted;
+    mLin = lin;
 }
 
 void DBCFile::setAssocBus(int bus)
@@ -1014,6 +1058,25 @@ bool DBCFile::parseAttributeLine(QString line)
         }
     }
 
+    //a network (file) attribute: BA_ "BusType" "LIN"; There is only one network, so its value is kept as the
+    //attribute's default, which is what saveFile() writes back.
+    regex.setPattern("^BA\\_ \\\"([-\\w]+)\\\" \\\"?([-#.\\w]*)\\\"? *;");
+    match = regex.match(line);
+    if (match.hasMatch())
+    {
+        DBC_ATTRIBUTE *foundAttr = findAttributeByName(match.captured(1), ATTR_TYPE_GENERAL);
+        if (foundAttr)
+        {
+            if (foundAttr->valType == ATTR_ENUM && !match.captured(2).isEmpty() && !match.captured(2).at(0).isDigit())
+            {
+                for (int x = 0; x < foundAttr->enumVals.count(); x++)
+                    if (!foundAttr->enumVals[x].trimmed().compare(match.captured(2), Qt::CaseInsensitive)) foundAttr->defaultValue = x;
+            }
+            else foundAttr->defaultValue = processAttributeVal(match.captured(2), foundAttr->valType);
+            return true;
+        }
+    }
+
     return false;
 }
 
@@ -1077,6 +1140,12 @@ bool DBCFile::loadFile(QString fileName)
     bool inMultilineBU = false;
     bool inMultilineValTable = false;
     QString multilineValTable;
+
+    if (fileName.endsWith(".ldf", Qt::CaseInsensitive))
+    {
+        delete inFile;
+        return loadLdfFile(fileName);
+    }
 
     qDebug() << "DBC File: " << fileName;
 
@@ -1420,6 +1489,40 @@ bool DBCFile::loadFile(QString fileName)
     filePath = fileName.left(fileName.length() - this->fileName.length());
     assocBuses = -1;
     isDirty = false;
+    refreshBusType();
+    return true;
+}
+
+//A LIN description file, turned into messages and signals by LdfToDbc
+bool DBCFile::loadLdfFile(QString fileName)
+{
+    QFile inFile(fileName);
+    if (!inFile.open(QIODevice::ReadOnly | QIODevice::Text))
+    {
+        qDebug() << "Could not load the file!";
+        return false;
+    }
+    const QByteArray data = inFile.readAll();
+    QString text = QString::fromUtf8(data);
+    if (text.contains(QChar::ReplacementCharacter)) text = QString::fromLatin1(data); //older LDFs aren't UTF-8
+
+    LdfDocument doc;
+    QString error;
+    if (!doc.parse(text, &error))
+    {
+        QMessageBox::warning(nullptr, "LDF file", QString("%1 couldn't be loaded:\n%2").arg(fileName, error));
+        return false;
+    }
+    QStringList warnings = doc.warnings;
+    LdfToDbc::fill(doc, this, &warnings);
+    for (const QString &w : std::as_const(warnings)) qDebug() << "LDF:" << w;
+
+    QStringList fileList = fileName.split('/');
+    this->fileName = fileList[fileList.length() - 1];
+    filePath = fileName.left(fileName.length() - this->fileName.length());
+    assocBuses = -1;
+    isDirty = false;
+    refreshBusType();
     return true;
 }
 
@@ -1550,6 +1653,14 @@ bool DBCFile::saveFile(QString fileName)
     QString nodesOutput, msgOutput, commentsOutput, valuesOutput, valueTableOutput, extMultiplexOutput;
     QString defaultsOutput, attrValOutput, sigValTypeOutput;
     bool hasExtendedMultiplexing = false;
+
+    //this writes DBC files: never over the LDF a file was loaded from
+    if (fileName.endsWith(".ldf", Qt::CaseInsensitive))
+    {
+        fileName.chop(4);
+        fileName += ".dbc";
+        outFile->setFileName(fileName);
+    }
 
     if (!outFile->open(QIODevice::WriteOnly | QIODevice::Text))
     {
@@ -1959,7 +2070,9 @@ void DBCHandler::saveDBCFile(int idx)
     dialog.setNameFilters(filters);
     dialog.setViewMode(QFileDialog::Detail);
     dialog.setAcceptMode(QFileDialog::AcceptSave);
-    dialog.selectFile(loadedFiles[idx]->getFullFilename());
+    QString current = loadedFiles[idx]->getFullFilename();
+    if (current.endsWith(".ldf", Qt::CaseInsensitive)) current = current.left(current.length() - 4) + ".dbc"; //saved as DBC
+    dialog.selectFile(current);
 
     if (dialog.exec() == QDialog::Accepted)
     {
@@ -2030,13 +2143,11 @@ DBCFile* DBCHandler::loadDBCFile(QString filename)
     if (newFile->loadFile(filename))
     {
         loadedFiles.append(newFile);
+        return newFile;
     }
-    else
-    {
-        //createBlankFile();
-    }
-    if (loadedFiles.count()> 0) return loadedFiles.last();
-    else return nullptr;
+    //not the last file loaded: callers would show it twice, or give it this file's settings
+    delete newFile;
+    return nullptr;
 }
 
 //the only reason to even bother sending the index is to see if
@@ -2051,7 +2162,7 @@ DBCFile* DBCHandler::loadDBCFile(int idx)
     QFileDialog dialog;
     QSettings settings;
 
-    QStringList filters{ tr("DBC File (*.dbc)") };
+    QStringList filters{ tr("DBC File (*.dbc)"), tr("LIN Description File (*.ldf)") };
 
     dialog.setDirectory(settings.value("DBC/LoadSaveDirectory", dialog.directory().path()).toString());
     dialog.setFileMode(QFileDialog::ExistingFile);
@@ -2452,6 +2563,8 @@ DBC_MESSAGE* DBCHandler::findMessage(const CommFrame &frame)
 {
     for(int i = 0; i < loadedFiles.count(); i++)
     {
+        //LIN IDs (0-63) overlap CAN IDs: LIN frames only match LIN files (LDFs, BusType "LIN"), other frames the rest
+        if (loadedFiles[i]->isLin() != frame.isLin()) continue;
         if (loadedFiles[i]->getAssocBus() == -1 || frame.getBus() == loadedFiles[i]->getAssocBus())
         {
             DBC_MESSAGE* msg = loadedFiles[i]->messageHandler->findMsgByID(frame.frameId());

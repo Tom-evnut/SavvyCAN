@@ -279,10 +279,12 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
         return true;
     }
 
+    int64_t rawValue = NO_RAW_VALUE;
     if (valType == SIGNED_INT) isSigned = true;
     if (valType == SIGNED_INT || valType == UNSIGNED_INT)
     {
         result = Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned);
+        rawValue = result;
         endResult = ((double)result * factor) + bias;
         result = (int64_t)endResult;
         // if factor is an integer, we don't need the possibly human-unreadable float representation
@@ -311,7 +313,7 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
         endResult = (*((double *)(&result)) * factor) + bias;
     }
 
-    outString = makePrettyOutput(endResult, result, outputName, isInteger, outputUnit);
+    outString = makePrettyOutput(endResult, result, outputName, isInteger, outputUnit, rawValue);
     cachedValue = endResult;
     return true;
 }
@@ -332,7 +334,8 @@ bool DBC_SIGNAL::getValueString(int64_t intVal, QString &outString)
     return false;
 }
 
-QString DBC_SIGNAL::makePrettyOutput(double floatVal, int64_t intVal, bool outputName, bool isInteger, bool outputUnit)
+QString DBC_SIGNAL::makePrettyOutput(double floatVal, int64_t intVal, bool outputName, bool isInteger, bool outputUnit,
+                                     int64_t rawVal)
 {
     QString outputString;
 
@@ -340,17 +343,23 @@ QString DBC_SIGNAL::makePrettyOutput(double floatVal, int64_t intVal, bool outpu
 
     if (valList.count() > 0) //if this is a value list type then look it up and display the proper string
     {
+        //value tables hold raw values (DBC VAL_, LDF logical values); scaled values are tried too, as SavvyCAN
+        //used to look up only those
         bool foundVal = false;
-        for (int x = 0; x < valList.count(); x++)
+        for (int pass = (rawVal == NO_RAW_VALUE ? 1 : 0); pass < 2 && !foundVal; pass++)
         {
-            if (valList.at(x).value == intVal)
+            const int64_t wanted = pass == 0 ? rawVal : intVal;
+            for (int x = 0; x < valList.count(); x++)
             {
-                outputString += valList.at(x).descript;
-                foundVal = true;
-                break;
+                if (valList.at(x).value == wanted)
+                {
+                    outputString += valList.at(x).descript;
+                    foundVal = true;
+                    break;
+                }
             }
         }
-        if (!foundVal) outputString += QString::number(intVal);
+        if (!foundVal) outputString += (isInteger ? QString::number(intVal) : QString::number(floatVal));
         if (outputUnit) outputString += " " + unitName;
     }
     else //otherwise display the actual number and unit (if it exists)

@@ -162,6 +162,7 @@ void DBCLoadSaveWindow::loadFile()
     filters.append(QString(tr("DBC File (*.dbc)")));
     filters.append(QString(tr("Tesla JSON File (*.json)")));
     filters.append(QString(tr("Secret CSV Signal Defs (*.csv)")));
+    filters.append(QString(tr("LIN Description File (*.ldf)")));
 
     dialog.setDirectory(settings.value("DBC/LoadSaveDirectory", dialog.directory().path()).toString());
     dialog.setFileMode(QFileDialog::ExistingFile);
@@ -183,6 +184,11 @@ void DBCLoadSaveWindow::loadFile()
         {
             if (!filename.contains('.')) filename += ".json";
             file = dbcHandler->loadJSONFile(filename);
+        }
+        if (dialog.selectedNameFilter() == filters[3])
+        {
+            if (!filename.contains('.')) filename += ".ldf";
+            file = dbcHandler->loadDBCFile(filename); //loads LDFs by their extension
         }
         if (dialog.selectedNameFilter() == filters[2])
         {

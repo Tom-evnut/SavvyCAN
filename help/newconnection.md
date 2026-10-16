@@ -48,6 +48,19 @@ Connecting to Socketcand
 
 This is a LINUX only solution which allows one to connect to a socketcan device that is registered on the local network. You can also set up SSH tunnels or VPN to expand the reach over the internet. It should fill out a list of any available socketcand interfaces. Setting up socketcand is outside the scope of this help file but may your GoogleFu be strong.
 
+Connecting to a Microchip LIN Serial Analyzer (LIN)
+===================================================
+
+The Microchip LIN Serial Analyzer (APGDT001) captures LIN traffic over USB. Select "Microchip LIN Serial Analyzer (APGDT001, LIN)": the port list shows the connected analyzers by serial number, and an empty port means the first one found. The analyzer is a plain USB HID device, so it needs no driver; on Linux your user needs access to its hidraw device (a udev rule). This connection is only there if SavvyCAN was built with hidapi.
+
+The connection has one LIN bus, bus 0. It only listens for now (monitor mode): it doesn't send headers or responses. Set the bit rate in the bus settings of the connection window (2400 to 20000 bit/s, 19200 to start with); the debug console says whether the analyzer took the setting.
+
+Received LIN frames have the 6-bit LIN ID as their ID and the response's data bytes as their data. A header nobody answered has no data. SavvyCAN checks each response's checksum, works out whether the ID uses the classic or the enhanced checksum, and checks the ID's parity bits. Timestamps come from the analyzer's clock, in steps of 0.409 ms.
+
+LIN frames show "L" in the Type column of the main frame list, "LN" for a header nobody answered, and "!" is added when the checksum or parity is wrong or the analyzer reported an error. In overwrite mode, IDs that only ever get headers stay in the list. The Frame Details window adds a LIN section for LIN IDs: the protected ID, the checksum model the ID uses, and how many responses, unanswered headers and errors there were. LIN frames are saved in SavvyCAN's native CSV format with "LIN" in the flags column after the data, followed by the checksum received (for example `LIN+CS=DB+CLASSIC`) and any errors.
+
+The protocol SavvyCAN uses to talk to the analyzer was worked out from Microchip's demo software and hasn't been checked on every analyzer; if something looks wrong, the debug console output helps.
+
 Connecting over MQTT
 ====================
 

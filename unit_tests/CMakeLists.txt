@@ -60,8 +60,110 @@ target_link_libraries(TestUdsHandler
     Qt6::Widgets
 )
 
+###### LIN frame test ######
+add_executable(TestLinFrame test_lin_frame.cpp)  # CommFrame is header-only
+
+target_include_directories(TestLinFrame PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestLinFrame
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
+###### APGDT001 parser test ######
+add_executable(TestApgdt001Parser
+    test_apgdt001_parser.cpp
+    ../connections/apgdt001parser.cpp  # the class under test
+)
+
+target_include_directories(TestApgdt001Parser PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestApgdt001Parser
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
+###### APGDT001 session test ######
+add_executable(TestApgdt001Session
+    test_apgdt001_session.cpp
+    ../connections/apgdt001session.cpp  # the class under test
+    ../connections/apgdt001parser.cpp
+)
+
+target_include_directories(TestApgdt001Session PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestApgdt001Session
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
+###### LIN display and native CSV test ######
+add_executable(TestLinFormat
+    test_lin_format.cpp
+    ../framefileio.cpp  # native CSV, with what it needs
+    ../blfhandler.cpp
+    ../pcaplite.cpp
+    ../utility.cpp
+)
+
+target_include_directories(TestLinFormat PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestLinFormat
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+    Qt6::Widgets
+)
+
+###### LDF test ######
+add_executable(TestLdf
+    test_ldf.cpp
+    ../dbc/ldfparser.cpp  # the classes under test
+    ../dbc/ldftodbc.cpp
+    ../dbc/dbchandler.cpp
+    ../dbc/dbc_classes.cpp
+    ../utility.cpp
+    ../framefileio.cpp  # LIN text logs, decoded with real LDFs
+    ../blfhandler.cpp
+    ../pcaplite.cpp
+)
+
+target_include_directories(TestLdf PRIVATE ${SAVVYCAN_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../dbc)
+# real LDFs in the git-ignored test/lin-data/ldf are tested too, when there are any
+target_compile_definitions(TestLdf PRIVATE SAVVYCAN_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+
+target_link_libraries(TestLdf
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+    Qt6::Widgets
+)
+
+###### CANBus test ######
+add_executable(TestCanBus
+    test_canbus.cpp
+    ../connections/canbus.cpp  # the class under test
+)
+
+target_include_directories(TestCanBus PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestCanBus
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 
 # Enable ctest integration
 enable_testing()
 add_test(NAME TestIsoTpHandler COMMAND TestIsoTpHandler)
 add_test(NAME TestUdsHandler COMMAND TestUdsHandler)
+add_test(NAME TestLinFrame COMMAND TestLinFrame)
+add_test(NAME TestApgdt001Parser COMMAND TestApgdt001Parser)
+add_test(NAME TestCanBus COMMAND TestCanBus)
+add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
+add_test(NAME TestLinFormat COMMAND TestLinFormat)
+add_test(NAME TestLdf COMMAND TestLdf)
