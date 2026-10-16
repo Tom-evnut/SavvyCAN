@@ -1,0 +1,29 @@
+# LeakSanitizer suppressions for TestLdf (set through LSAN_OPTIONS in CMakeLists.txt).
+#
+# The DBC classes never free what a DBCFile holds: ~DBCFile deletes only dbc_nodes, not messageHandler;
+# DBCMessageHandler, DBC_MESSAGE (its sigHandler) and DBCSignalHandler have no destructors, and
+# removeAllMessages() only clears the map. So every message and signal of a DBC or LDF file leaks when the
+# file goes away. This is upstream behaviour and the LDF mapping (LdfToDbc) keeps it, to match.
+#
+# It isn't fixed here on purpose: graphs (re/graphingwindow), the search window, the signal viewer and the
+# DBC editors keep raw DBC_SIGNAL / DBC_MESSAGE pointers, and DBCHandler::removeDBCFile doesn't tell them.
+# The leak is what keeps those pointers valid; if a DBCFile freed its messages, a graph left open after its
+# DBC is removed would decode the next frame with a freed signal (graphingwindow.cpp, processAsDouble).
+#
+# A pattern matches any frame of the allocation's stack, so only the places that create a file's messages
+# and signals, or the strings they keep, are named. Leaks elsewhere in TestLdf (the test itself, frame file
+# I/O, the rest of the LDF parser, DBC saving) are still reported and fail the test.
+
+# messageHandler, new'd in the constructor
+leak:DBCFile::DBCFile
+# the DBC loader: new DBC_MESSAGE / DBC_SIGNAL (parseMessageLine, parseSignalLine), the comments, value lists
+# and multiplexor lists it stores in them, and LDF files it loads through LdfToDbc
+leak:DBCFile::loadFile
+# the LDF mapping: new DBC_MESSAGE / DBC_SIGNAL, through makeSignal / addFrameSignals
+leak:LdfToDbc::fill
+# the LDF parser's names and texts: messages and signals share these strings (Qt's implicit sharing), so they
+# leak with them. GCC 11's LeakSanitizer doesn't treat suppressed objects as roots (later versions do), so
+# what they hold has to be named where it was allocated. These stacks run through Qt's release libraries,
+# which ASan's fast unwinder can't walk, hence ASAN_OPTIONS=fast_unwind_on_malloc=0 next to LSAN_OPTIONS.
+leak:tokenize
+leak:itemText

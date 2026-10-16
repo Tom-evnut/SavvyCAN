@@ -199,3 +199,8 @@ add_test(NAME TestLinFormat COMMAND TestLinFormat)
 add_test(NAME TestLdf COMMAND TestLdf)
 add_test(NAME TestPlin COMMAND TestPlin)
 add_test(NAME TestBlf COMMAND TestBlf)
+# the DBC classes never free a file's messages and signals (GUI windows keep pointers to them), so under
+# AddressSanitizer those leaks are suppressed: see lsan_dbc_ownership.supp. Other leaks still fail the test.
+# The slow unwinder gets allocation stacks through Qt's libraries, so the suppressions can name our functions.
+set_tests_properties(TestLdf PROPERTIES ENVIRONMENT
+    "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan_dbc_ownership.supp;ASAN_OPTIONS=fast_unwind_on_malloc=0")

@@ -1,0 +1,2 @@
+# LeakSanitizer reads suppression patterns up to the line feed: a CR would become part of every pattern
+*.supp text eol=lf
