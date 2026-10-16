@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - "fork-ci"
+      - "fork-ci-lin" # fork-ci with the LIN branches merged in
   workflow_dispatch:
 
 jobs:
