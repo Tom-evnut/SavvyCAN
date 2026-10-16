@@ -201,11 +201,15 @@ class BLFHandler
 public:
     BLFHandler();
     bool loadBLF(QString filename, QVector<CommFrame>* frames);
-    bool saveBLF(QString filename, QVector<CommFrame>* frames);
+    //CAN (object 1) and CAN FD (object 100) frames in zlib-compressed log containers, as python-can writes them;
+    //frames BLF can't hold yet are skipped (counted in skippedFrames())
+    bool saveBLF(QString filename, const QVector<CommFrame>* frames);
+    int skippedFrames() const { return mSkipped; }
 
 private:
     BLF_FILE_HEADER header;
     QList<BLF_OBJECT> objects;
+    int mSkipped = 0;
 };
 
 #endif // BLFHANDLER_H

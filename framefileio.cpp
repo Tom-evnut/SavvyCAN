@@ -55,6 +55,7 @@ bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* fra
     filters.append(QString(tr("CANalyzer Ascii Log (*.asc *.ASC)")));
     filters.append(QString(tr("CARBUS Analyzer (*.trc *.TRC)")));
     filters.append(QString(tr("PCAN Viewer (*.trc *.TRC)")));
+    filters.append(QString(tr("CANalyzer Binary Log Files (*.blf *.BLF)")));
 
     dialog.setDirectory(settings.value("FileIO/LoadSaveDirectory", dialog.directory().path()).toString());
     dialog.setFileMode(QFileDialog::AnyFile);
@@ -149,6 +150,11 @@ bool FrameFileIO::saveFrameFile(QString &fileName, const QVector<CommFrame>* fra
         {
             if (!filename.contains('.')) filename += ".trc";
             result = savePCANFile(filename, frameCache);
+        }
+        if (dialog.selectedNameFilter() == filters[14])
+        {
+            if (!filename.contains('.')) filename += ".blf";
+            result = saveCanalyzerBLF(filename, frameCache);
         }
 
         progress.cancel();
@@ -2189,6 +2195,12 @@ bool FrameFileIO::loadCanalyzerBLF(QString filename, QVector<CommFrame> *frames)
 {
     BLFHandler blf;
     return blf.loadBLF(filename, frames);
+}
+
+bool FrameFileIO::saveCanalyzerBLF(QString filename, const QVector<CommFrame> *frames)
+{
+    BLFHandler blf;
+    return blf.saveBLF(filename, frames);
 }
 
 bool FrameFileIO::isNativeCSVFile(QString filename)

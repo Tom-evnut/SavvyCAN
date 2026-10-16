@@ -172,6 +172,21 @@ target_link_libraries(TestCanBus
 )
 
 
+###### BLF test ######
+add_executable(TestBlf
+    test_blf.cpp
+    ../blfhandler.cpp  # the class under test
+)
+
+target_include_directories(TestBlf PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestBlf
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
+
 # Enable ctest integration
 enable_testing()
 add_test(NAME TestIsoTpHandler COMMAND TestIsoTpHandler)
@@ -183,3 +198,4 @@ add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
 add_test(NAME TestLinFormat COMMAND TestLinFormat)
 add_test(NAME TestLdf COMMAND TestLdf)
 add_test(NAME TestPlin COMMAND TestPlin)
+add_test(NAME TestBlf COMMAND TestBlf)
