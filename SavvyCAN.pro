@@ -25,6 +25,7 @@ ICON = icons/SavvyIcon.icns
 
 SOURCES += main.cpp\
     canbridgewindow.cpp \
+    connections/apgdt001parser.cpp \
     connections/canlogserver.cpp \
     connections/canserver.cpp \
     connections/lawicel_serial.cpp \
@@ -110,6 +111,7 @@ SOURCES += main.cpp\
 HEADERS  += mainwindow.h \
     can_structs.h \
     canbridgewindow.h \
+    connections/apgdt001parser.h \
     canframemodel.h \
     connections/canlogserver.h \
     connections/canserver.h \

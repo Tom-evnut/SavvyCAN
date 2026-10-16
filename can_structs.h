@@ -210,7 +210,8 @@ public:
         LinErrFraming           = (1 << 3), //missing stop bit
         LinErrCollision         = (1 << 4), //several slaves answered (event-triggered frames)
         LinErrParity            = (1 << 5), //protected ID parity error, as reported by the device
-        LinErrBit               = (1 << 6)  //read back a different bit than sent
+        LinErrBit               = (1 << 6), //read back a different bit than sent
+        LinErrDevice            = (1 << 7)  //the device flagged an error without saying which
     };
 
     //protected ID for a frame ID: P0 = ID0^ID1^ID2^ID4 (bit 6), P1 = !(ID1^ID3^ID4^ID5) (bit 7)

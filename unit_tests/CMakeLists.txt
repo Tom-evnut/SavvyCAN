@@ -71,9 +71,24 @@ target_link_libraries(TestLinFrame
     Qt6::SerialBus
 )
 
+###### APGDT001 parser test ######
+add_executable(TestApgdt001Parser
+    test_apgdt001_parser.cpp
+    ../connections/apgdt001parser.cpp  # the class under test
+)
+
+target_include_directories(TestApgdt001Parser PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestApgdt001Parser
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 
 # Enable ctest integration
 enable_testing()
 add_test(NAME TestIsoTpHandler COMMAND TestIsoTpHandler)
 add_test(NAME TestUdsHandler COMMAND TestUdsHandler)
 add_test(NAME TestLinFrame COMMAND TestLinFrame)
+add_test(NAME TestApgdt001Parser COMMAND TestApgdt001Parser)

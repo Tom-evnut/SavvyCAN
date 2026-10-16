@@ -55,6 +55,7 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     canfilter.cpp canfilter.h
     canframemodel.cpp canframemodel.h
     config.h
+    connections/apgdt001parser.cpp connections/apgdt001parser.h
     connections/canbus.cpp connections/canbus.h
     connections/canconconst.h
     connections/canconfactory.cpp connections/canconfactory.h
