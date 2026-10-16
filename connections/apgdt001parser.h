@@ -7,7 +7,8 @@
 
 /*
  * Parser for the input reports of a Microchip APGDT001 LIN Serial Analyzer (USB HID, PICkit Serial Analyzer style
- * firmware). The protocol was worked out from Microchip's LIN Library API Demo and isn't confirmed on a device yet;
+ * firmware). The protocol was worked out from Microchip's LIN Library API Demo and checked on a device (an APGDT001
+ * polling LIN slaves at 9600 and 19200 bit/s: status replies, breaks, bytes, timer markers, script status);
  * see docs/lin-roadmap.md (D1) on the lin-roadmap branch.
  *
  * Each 64-byte input report holds packets, each starting with a type byte:
@@ -49,7 +50,7 @@ public:
     static constexpr int REPORT_SIZE = 64;
     static constexpr int STATUS_BLOCK_SIZE = 24;   //configuration block bytes echoed in a 0x82 status packet
     static constexpr int BAUD_CLOCK = 5000000;     //bit rate = BAUD_CLOCK / (divisor + 1), set and measured
-    static constexpr int TICK_US = 409;            //event timer tick (Microchip's library: 0.409 ms; to confirm)
+    static constexpr int TICK_US = 409;            //event timer tick (Microchip's library: 0.409 ms; matches a device)
     static constexpr int MAX_FRAME_BYTES = 1 + CommFrame::LIN_MAX_PAYLOAD + 1; //protected ID, data, checksum
     static constexpr qint64 REANCHOR_US = 1000000;
 

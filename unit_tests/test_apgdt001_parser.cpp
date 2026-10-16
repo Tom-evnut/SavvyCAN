@@ -31,6 +31,7 @@ private slots:
     void testMeasuredBaudAndScriptStatus();
     void testStatusReply();
     void testReset();
+    void testCaptureFromDevice();
 
 private:
     int feed(const QList<QByteArray> &packets, qint64 hostUs = 1000000);
@@ -329,6 +330,48 @@ void TestApgdt001Parser::testReset()
     feed({stream(brk())});
     QCOMPARE(frames.size(), 0);
     QCOMPARE(parser.emptyBreaks(), 0ull); // the frame was dropped, and the half tag with it
+}
+
+// Reports as an APGDT001 sent them at 9600 bit/s, polling BMW HVAC flap motors with headers alone: ID 8 answered
+// FE FF (classic checksum 01) across three reports, ID 9 didn't answer. Each report's packet is followed by bytes
+// left over from earlier reports, which the end marker (0x80) must stop the parser reading.
+void TestApgdt001Parser::testCaptureFromDevice()
+{
+    const QList<QPair<qint64, QByteArray>> reports = {
+        {1271202, QByteArray::fromHex("860983132E0B1C7713320B80107F13AA0A808013AE07107F13B107800802830000000000"
+                                      "000A000000000000000000000008028400280080002880BF79FF4EBD")},
+        {1279169, QByteArray::fromHex("860F100813340B10FE13370B10FF133A0B808013AE07107F13B107800802830000000000"
+                                      "000A000000000000000000000008028400280080002880BF79FF4EBD")},
+        {1287197, QByteArray::fromHex("86051001133D0B80FE13370B10FF133A0B808013AE07107F13B107800802830000000000"
+                                      "000A000000000000000000000008028400280080002880BF79FF4EBD")},
+        {1335175, QByteArray::fromHex("860E8313C80B1C7713CC0B104913CE0B80808013AE07107F13B107800802830000000000"
+                                      "000A000000000000000000000008028400280080002880BF79FF4EBD")},
+    };
+    for (const auto &r : reports)
+    {
+        QCOMPARE(r.second.size(), Apgdt001Parser::REPORT_SIZE);
+        parser.feed(r.second.constData(), int(r.second.size()), CommFrame::TimeStamp(0, r.first), frames);
+    }
+    QCOMPARE(frames.size(), 1); // the break before ID 9 ends ID 8's frame
+    parser.flush(CommFrame::TimeStamp(0, 1400000), frames);
+    QCOMPARE(frames.size(), 2);
+
+    const CommFrame &answered = frames.at(0);
+    QCOMPARE(answered.frameId(), quint32(0x08));
+    QCOMPARE(answered.payload(), QByteArray::fromHex("FEFF"));
+    QCOMPARE(answered.linChecksumByte(), quint8(0x01));
+    QVERIFY(answered.linChecksumOk());
+    QCOMPARE(answered.linChecksumModel(), CommFrame::LinChecksumClassic);
+    QVERIFY(!answered.hasLinError());
+
+    const CommFrame &unanswered = frames.at(1);
+    QCOMPARE(unanswered.frameId(), quint32(0x09));
+    QVERIFY(unanswered.isLinHeaderOnly());
+    QVERIFY(!unanswered.hasLinError());
+    // the device timer: 154 ticks (63 ms) between the two breaks; the headers were sent 63 ms apart
+    QCOMPARE(qint64(unanswered.timeStamp().microSeconds() - answered.timeStamp().microSeconds()), qint64(154 * 409));
+    QCOMPARE(parser.strayBytes(), quint64(0));
+    QCOMPARE(parser.scriptsFinished(), quint64(2));
 }
 
 QTEST_MAIN(TestApgdt001Parser)

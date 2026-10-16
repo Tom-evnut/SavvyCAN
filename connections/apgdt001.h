@@ -51,6 +51,7 @@ private:
     void closeDevice();
     void reportStatus();
     bool sendReports(const QList<QByteArray> &reports);
+    bool sendDueTransmits();
     void deliverFrames();
     void reportCheck();
     CommFrame::TimeStamp hostTimestamp() const;

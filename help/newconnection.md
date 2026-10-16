@@ -81,7 +81,7 @@ To send, set the LIN bus to Master in the connection's bus settings (LIN Mode). 
 
 The checksum model is the bus's LIN Checksum setting. Left at "Per ID, as received", each ID is sent with the model it was last seen using on the bus, and with the enhanced (LIN 2.x) checksum if it hasn't been seen yet; diagnostic frames (IDs 0x3C and 0x3D) always use the classic checksum. LIN frames played back from a log keep the checksum they were logged with. The frames sent show in the frame list as the interface reports them, so each appears once. Slave mode (answering headers) isn't there yet.
 
-With the Microchip analyzer, sending a header alone uses a command that hasn't been checked on an analyzer yet.
+With the Microchip analyzer, frames sent together (several Send Frames rows on the same trigger, or a script) go out one frame slot apart, so each slave has time to answer: the analyzer itself starts the next header straight away. A header alone gets the slot of an 8-byte response, about 19 ms at 9600 bit/s and 10 ms at 19200, so polling many IDs quickly is limited by that. LIN slaves that have gone to sleep may not answer the first header after a quiet bus: it wakes them up.
 
 Connecting over MQTT
 ====================
