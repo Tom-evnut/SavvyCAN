@@ -60,8 +60,20 @@ target_link_libraries(TestUdsHandler
     Qt6::Widgets
 )
 
+###### LIN frame test ######
+add_executable(TestLinFrame test_lin_frame.cpp)  # CommFrame is header-only
+
+target_include_directories(TestLinFrame PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestLinFrame
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
+
 
 # Enable ctest integration
 enable_testing()
 add_test(NAME TestIsoTpHandler COMMAND TestIsoTpHandler)
 add_test(NAME TestUdsHandler COMMAND TestUdsHandler)
+add_test(NAME TestLinFrame COMMAND TestLinFrame)
