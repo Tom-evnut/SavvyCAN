@@ -2,7 +2,8 @@
 
 Scope: taking LIN from a placeholder to full support in SavvyCAN (Tom-evnut fork): capture, decoding, sending,
 log files and reverse-engineering tools. Written against `fork-ci` plus the `flexray-pico` branches, whose FlexRay
-work is the template for most of this.
+work is the template for most of this. The first LIN interface is a Microchip APGDT001 (LIN Serial Analyzer),
+tested against a real LIN slave module.
 
 ---
 
@@ -43,17 +44,29 @@ LIN has a frame type and a label, and nothing produces or consumes it.
 
 These shape everything after and are cheap to settle before code lands.
 
-### D1. Which hardware first
+### D1. Which hardware first (decided: APGDT001)
 
 | Option | For | Against |
 |---|---|---|
-| **A. GVRET firmware (ESP32RET fork, M2RET)** | The GVRET protocol already has LIN1/LIN2 bus settings; the fork already maintains ESP32RET (`Tom-evnut/ESP32RET`) and the GVRET test mocks; LIN is UART-based and cheap to add to an ESP32 with a LIN transceiver | Needs new GVRET opcodes (a protocol proposal upstream, like #1140); needs a board with a LIN transceiver; UART break/error detection on ESP32 is coarse |
-| **B. Pico-based LIN sniffer/injector** (like pico-flexray) | PIO gives bit-level timing: break length, sync errors, per-byte timestamps, collision detection; same USB/libusb path as pico-flexray | A new firmware project to maintain |
+| **APGDT001 (Microchip LIN Serial Analyzer)** | Already on the bench; USB; Microchip lists host (master), slave and non-intrusive snooper roles, so it covers monitoring and both sending modes | Its PC protocol isn't publicly documented (see below); a new connection type, not a reuse of GVRET |
+| A. GVRET firmware (ESP32RET fork, M2RET) | The GVRET protocol already has LIN1/LIN2 bus settings; the fork already maintains ESP32RET (`Tom-evnut/ESP32RET`) and the GVRET test mocks; LIN is UART-based and cheap to add to an ESP32 with a LIN transceiver | Needs new GVRET opcodes (a protocol proposal upstream, like #1140); needs a board with a LIN transceiver; UART break/error detection on ESP32 is coarse |
+| B. Pico-based LIN sniffer/injector (like pico-flexray) | PIO gives bit-level timing: break length, sync errors, per-byte timestamps, collision detection; same USB/libusb path as pico-flexray | A new firmware project to maintain |
 | C. Commercial adapters (PEAK PLIN-USB, Vector XL, Kvaser LIN) | Robust, master and slave modes, many users already own one | Vendor SDKs, Windows-centric, licensing to check per SDK; one driver per vendor |
 | D. Linux `sllin` (LIN over SocketCAN) | Reuses the QtSerialBus SocketCAN path | Out-of-tree driver; LIN details packed into CAN ID flags; Linux only. Check its current state before committing to it |
 
-**Recommendation:** A first. It reuses the most existing code and test bench, and the protocol design work
-benefits upstream GVRET users. Keep the connection layer generic so B and C can follow as separate connections.
+**Decision:** the APGDT001 first, because it's the adapter on the bench. Keep the connection layer generic so GVRET
+(A), a Pico sniffer (B) and vendor adapters (C) can follow as separate connections.
+
+**APGDT001 unknowns, to settle before its connection is written:**
+
+- How it enumerates on USB (Microchip VID `0x04D8`): virtual COM port, HID or a custom driver. Microchip's newer
+  analyzer GUI (v3.0.0) is Java and runs on Windows, Linux and macOS, which suggests a standard USB class, but that
+  needs checking on the device.
+- Its command set: frames in and out, bus speed, role selection (snoop / master / slave), slave response setup,
+  timestamps and error reporting. Sources: the *LIN Serial Analyzer User's Guide* (DS51675) on Microchip's APGDT001
+  page, and a USB capture (USBPcap + Wireshark) of Microchip's GUI driving the device.
+- What it reports: per-frame timestamps and their resolution, checksum and parity errors, headers with no response.
+  This decides which `CommFrame` LIN details the connection can fill in.
 
 ### D2. How a LIN frame lives in `CommFrame`
 
@@ -68,10 +81,11 @@ benefits upstream GVRET users. Keep the connection layer generic so B and C can 
 - **`isDataFrame()`:** true for LIN frames that have a response, so DBC/LDF decoding, graphing and the analysis
   tools pick them up.
 
-**Coordinate with FlexRay phase 2.** `CommFrame` currently has a FlexRay-only packed field (`flexRayInfo`), and
-FlexRay phase 2 plans a proper metadata redesign. Do one design for both: a per-protocol metadata field with
-typed accessors (`linChecksum()`, `linErrors()`, ...), rather than a second ad-hoc packed field. That change touches
-every file format and the model, so land it once, reviewed, before either protocol builds on it.
+**Decided: same pattern as FlexRay, independent of it.** On `flexray-phase1-capture`, FlexRay header details live in
+one packed `quint64 flexRayInfo` field with typed accessors. LIN gets its own `linInfo` field built the same way
+(flag bits, shifts, `setLin...()` / `lin...()` accessors), and LIN branches from and merges into `fork-ci` without
+needing the FlexRay branches. When both are in `fork-ci` the two fields sit side by side; FlexRay phase 2's metadata
+redesign can fold them into one per-protocol field later, behind the same accessors.
 
 ### D3. How a LIN bus is represented
 
@@ -79,7 +93,9 @@ every file format and the model, so land it once, reviewed, before either protoc
   connection window, filters, the DBC/LDF manager and the sender know what each bus number is.
 - LIN bus settings: speed, mode (**monitor** / **master** / **slave**), default checksum model, LIN version
   (1.3 / 2.x / J2602).
-- For GVRET: LIN1 and LIN2 become buses after SWCAN (bus 3 and 4 on a device with CAN0, CAN1, SWCAN), and the
+- The APGDT001 is one LIN bus (bus 0 of its connection), with speed and role set from SavvyCAN if its command set
+  allows.
+- Later, for GVRET: LIN1 and LIN2 become buses after SWCAN (bus 3 and 4 on a device with CAN0, CAN1, SWCAN), and the
   baud/enable values already read from `GET_EXT_BUSES` are applied to them.
 
 ### D4. Decoding: LDF and DBC
@@ -104,14 +120,18 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 - **Model:** the D2 frame semantics and metadata (on top of the shared metadata design), `isValid()`,
   `isDataFrame()`, PID parity and both checksum models as helpers with unit tests.
 - **Bus type:** D3, with LIN buses shown in the connection window (speed, mode read-only at first).
-- **GVRET:** a receive opcode for LIN frames (ID, bus, data, checksum, error flags, device timestamp), applying the
-  LIN1/LIN2 settings from `GET_EXT_BUSES`; firmware side in the ESP32RET fork. Old firmware keeps working (the
-  opcode is only expected after the device says it supports it, as with `GET_FD`).
+- **APGDT001 connection:** "Microchip LIN Serial Analyzer (APGDT001)" in the new-connection dialog, snoop mode:
+  bus speed, received frames with whatever checksum, error and timing details the device reports (D1 unknowns
+  settled first). Device time mapped onto SavvyCAN's clock as the pico-flexray parser does, if it has one.
+- **GVRET (later, separate branch):** a receive opcode for LIN frames, applying the LIN1/LIN2 settings from
+  `GET_EXT_BUSES`; firmware side in the ESP32RET fork. Old firmware keeps working (the opcode is only expected after
+  the device says it supports it, as with `GET_FD`).
 - **Frame list:** `L` for LIN, `LN` for a header with no response, `L!` for checksum/parity errors; Frame Details
   shows PID, checksum, checksum model and errors. Overwrite mode keeps header-only IDs (as for FlexRay null slots).
 - **Native CSV:** `LIN` in the flags column plus checksum and error flags; old files load unchanged.
-- **Done when:** traffic from a real LIN bus (e.g. a seat, mirror or HVAC panel module) shows with correct IDs,
-  no-response headers, checksum validity and device timing, and survives a native CSV save/load.
+- **Done when:** traffic between the APGDT001 and the bench slave module (with Microchip's GUI as master, or another
+  master) shows in SavvyCAN with correct IDs, no-response headers, checksum validity and timing, and survives a
+  native CSV save/load.
 
 ### Phase 2: decoding
 
@@ -126,8 +146,9 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 3: sending
 
-- **Firmware + GVRET:** a transmit opcode for master mode (header, or header + response) and a slave response table
-  (respond to a given ID with given data and checksum model). Bus mode settable from SavvyCAN.
+- **APGDT001:** master mode (header, or header + response) and slave mode (respond to a given ID with given data and
+  checksum model), using its host and slave roles. Bus mode settable from SavvyCAN.
+- **GVRET (later):** matching transmit opcode and slave response table in the ESP32RET fork.
 - **Send Frames window:** LIN rows (bus, ID, data, checksum model, master/slave-response); scripting gets
   `lin.sendFrame()` / slave response helpers.
 - **Schedule table runner:** play an LDF schedule table as master (with the ability to override individual frames'
@@ -164,18 +185,24 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 ## 4. Testing
 
 - Unit tests for PID parity and both checksums against known vectors, and for `isValid()` / `isDataFrame()` on LIN.
-- A mock GVRET device that speaks the new LIN opcodes (in the existing test bench), including old firmware that
-  doesn't.
+- A mock APGDT001 in the test bench (Zombie-CANFD-Testbench `tests/savvycan`), built from the USB capture, so the
+  connection is tested without hardware. Later, a mock GVRET device with the LIN opcodes, including old firmware
+  that doesn't have them.
+- Real LDF files and captures live in `test/lin-data/` (`ldf/`, `captures/`), which a local `.gitignore` keeps out of
+  git; tests that need them skip when the folder is empty.
 - LDF parser tests against sample LDFs (including event-triggered frames and LIN 1.3 lengths) and a cross-check
   against an independent LDF parser (e.g. Python `ldfparser`).
 - Log file cross-checks (ASC, BLF, pcap) against python-can or the vendor tool output, as for CAN FD.
-- Hardware: a LIN bench with a real slave module and the chosen interface, before each phase is marked done.
+- Hardware: the APGDT001 and the bench slave module, before each phase is marked done.
 
 ---
 
 ## 5. Risks / notes
 
-- **`CommFrame` metadata** is the change everything rides on; do it together with FlexRay phase 2 (D2).
+- **`CommFrame` metadata** is the change everything rides on. `linInfo` follows `flexRayInfo`'s pattern (D2), so
+  merging the two branches only conflicts textually in `can_structs.h`.
+- **APGDT001 protocol:** undocumented publicly, so the connection depends on the user's guide and a USB capture. If
+  the device turns out to need a closed Windows driver or DLL, the connection may be Windows-only.
 - **Bus type** touches saved settings (`CANBus` stream operators): keep old saved connections loading.
 - **GVRET protocol changes** need firmware and an upstream protocol proposal; keep them behind a capability query so
   old devices and old SavvyCAN builds don't misread the stream.
@@ -188,8 +215,9 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ## 6. Suggested sequencing
 
-1. Phase 0 decisions (D1-D4), including the shared CAN/FlexRay/LIN metadata design.
-2. Phase 1 (model, bus type, GVRET receive, frame list, native CSV), firmware and SavvyCAN together.
+1. Phase 0: D1 and D2 are decided; settle the APGDT001 unknowns (enumeration, user's guide, USB capture) and D3/D4.
+2. Phase 1, in this order: the `CommFrame` LIN model and its unit tests (no hardware needed), the bus type, the
+   APGDT001 connection, then the frame list and native CSV.
 3. Phase 2 (LDF and decoding).
 4. Phase 3 (sending) and phase 4 (log files) are independent; run them in parallel once phase 2 lands.
 5. Phase 5 accelerators last, on top of real captures.
