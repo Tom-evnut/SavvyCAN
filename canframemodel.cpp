@@ -202,6 +202,18 @@ void CommFrameModel::normalizeTiming()
     mutex.unlock();
 }
 
+LinFormat::Conversion CommFrameModel::convertToLin(int bus, bool lastByteIsChecksum)
+{
+    mutex.lock();
+    const LinFormat::Conversion result = LinFormat::convertToLin(frames, bus, lastByteIsChecksum);
+    this->beginResetModel();
+    LinFormat::convertToLin(filteredFrames, bus, lastByteIsChecksum); //the same frames as shown
+    this->endResetModel();
+    mutex.unlock();
+    if (overwriteDups) recalcOverwrite(); //rebuilt from the converted frames
+    return result;
+}
+
 void CommFrameModel::setOverwriteMode(bool mode)
 {
     overwriteDups = mode;

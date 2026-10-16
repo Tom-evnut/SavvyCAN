@@ -59,6 +59,8 @@ Received LIN frames have the 6-bit LIN ID as their ID and the response's data by
 
 LIN frames show "L" in the Type column of the main frame list, "LN" for a header nobody answered, and "!" is added when the checksum or parity is wrong or the analyzer reported an error. In overwrite mode, IDs that only ever get headers stay in the list. The Frame Details window adds a LIN section for LIN IDs: the protected ID, the checksum model the ID uses, and how many responses, unanswered headers and errors there were. LIN frames are saved in SavvyCAN's native CSV format with "LIN" in the flags column after the data, followed by the checksum received (for example `LIN+CS=DB+CLASSIC`) and any errors.
 
+LIN captures from files that don't mark their frames as LIN (CSV files from other tools, or saved before SavvyCAN knew LIN) load as CAN frames, which LIN description files don't decode. Use File > Treat Frames as LIN... to turn them into LIN frames: pick the bus, and tick "The last data byte is the LIN checksum" if the log keeps checksums. Frames with a standard ID of 0 to 63 and at most 8 data bytes are converted; the others stay as they are. Save as native CSV afterwards and the file loads as LIN from then on.
+
 The protocol SavvyCAN uses to talk to the analyzer was worked out from Microchip's demo software and hasn't been checked on every analyzer; if something looks wrong, the debug console output helps.
 
 Connecting over MQTT

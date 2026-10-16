@@ -103,6 +103,55 @@ inline void applyCsvFlags(CommFrame &frame, const QByteArray &flags)
     frame.verifyLinChecksum();
 }
 
+/*
+ * Turning frames loaded as CAN into LIN frames, for LIN captures from files that can't say they're LIN (CSV without
+ * LIN flags, other tools' logs): a classic CAN data frame with a standard ID of 0-63 and at most 8 bytes on the
+ * chosen bus (-1: any bus) becomes a LIN frame. With lastByteIsChecksum, up to 9 bytes, and the last one is taken
+ * as the checksum received and checked (finding the ID's checksum model); otherwise all bytes are data and there's
+ * no checksum.
+ */
+struct Conversion
+{
+    int converted = 0;
+    int notLin = 0; //on the bus but can't be LIN: extended ID, ID over 63, CAN FD, more than 8 bytes
+};
+
+//with the checksum kept, a full LIN frame is 9 bytes, which loaders take for CAN FD (more than 8 bytes, no BRS)
+inline bool canBeLin(const CommFrame &frame, bool lastByteIsChecksum)
+{
+    const int size = int(frame.payload().size());
+    const bool fdOnlyByLength = frame.frameType() == CommFrame::CANFDDataFrame && !frame.hasBitrateSwitch()
+                                && lastByteIsChecksum && size == CommFrame::LIN_MAX_PAYLOAD + 1;
+    return (frame.frameType() == CommFrame::CANDataFrame || fdOnlyByLength) && !frame.hasExtendedFrameFormat()
+           && frame.frameId() <= 0x3F && size <= CommFrame::LIN_MAX_PAYLOAD + (lastByteIsChecksum ? 1 : 0);
+}
+
+inline Conversion convertToLin(QVector<CommFrame> &frames, int bus, bool lastByteIsChecksum)
+{
+    Conversion result;
+    for (CommFrame &frame : frames)
+    {
+        if (bus >= 0 && frame.getBus() != bus) continue;
+        if (frame.isLin()) continue;
+        if (!canBeLin(frame, lastByteIsChecksum))
+        {
+            if (frame.isDataFrame()) result.notLin++;
+            continue;
+        }
+        const QByteArray bytes = frame.payload();
+        frame.setFrameType(CommFrame::LINDataFrame);
+        frame.clearLinInfo();
+        if (lastByteIsChecksum && bytes.size() >= 2)
+        {
+            frame.setPayload(bytes.left(bytes.size() - 1));
+            frame.setLinChecksum(quint8(bytes.back()));
+            frame.verifyLinChecksum();
+        }
+        result.converted++;
+    }
+    return result;
+}
+
 //the LIN lines of the Frame Info window for the frames of one ID (frames that aren't LIN are ignored); empty if
 //there are no LIN frames
 inline QStringList summary(const QVector<CommFrame> &frames)
