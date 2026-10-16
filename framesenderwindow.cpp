@@ -8,6 +8,30 @@
 #include "helpwindow.h"
 #include "connections/canconmanager.h"
 #include "triggerdialog.h"
+#include <QComboBox>
+#include <QStyledItemDelegate>
+
+//the LIN column: a choice of "", "LIN", "LIN classic" and "LIN enhanced"
+class LinColumnDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &, const QModelIndex &) const override
+    {
+        auto *box = new QComboBox(parent);
+        box->addItems({QString(), "LIN", "LIN classic", "LIN enhanced"});
+        return box;
+    }
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        auto *box = static_cast<QComboBox *>(editor);
+        box->setCurrentIndex(qMax(0, box->findText(index.data().toString())));
+    }
+    void setModelData(QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override
+    {
+        model->setData(index, static_cast<QComboBox *>(editor)->currentText());
+    }
+};
 
 //Column order of the tokens in a .fsd file (after the leading enable token). This is the original column
 //order; the FD and BRS columns were added later and are appended at the end so old files still load and
@@ -15,7 +39,7 @@
 static const QList<int> fileColumnOrder = {
     ST_COLS::SENDTAB_COL_BUS, ST_COLS::SENDTAB_COL_ID, ST_COLS::SENDTAB_COL_MSGNAME, ST_COLS::SENDTAB_COL_LEN,
     ST_COLS::SENDTAB_COL_EXT, ST_COLS::SENDTAB_COL_REM, ST_COLS::SENDTAB_COL_DATA, ST_COLS::SENDTAB_COL_TRIGGER,
-    ST_COLS::SENDTAB_COL_MODS, ST_COLS::SENDTAB_COL_FD, ST_COLS::SENDTAB_COL_BRS
+    ST_COLS::SENDTAB_COL_MODS, ST_COLS::SENDTAB_COL_FD, ST_COLS::SENDTAB_COL_BRS, ST_COLS::SENDTAB_COL_LIN
 };
 
 /*
@@ -65,7 +89,7 @@ FrameSenderWindow::FrameSenderWindow(const QVector<CommFrame> *frames, QWidget *
 void FrameSenderWindow::setupGrid()
 {
     QStringList headers;
-    headers << "En" << "Bus" << "ID" << "MsgName" << "Len" << "Ext" << "Rem" << "FD" << "BRS" << "Data"
+    headers << "En" << "Bus" << "ID" << "MsgName" << "Len" << "Ext" << "Rem" << "FD" << "BRS" << "LIN" << "Data"
             << "Trigger" << "Modifications" << "Count";
     ui->tableSender->setColumnCount(ST_COLS::SENDTAB_COL_COUNT + 1);
     ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_EN, 50);
@@ -77,6 +101,8 @@ void FrameSenderWindow::setupGrid()
     ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_REM, 50);
     ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_FD, 40);
     ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_BRS, 40);
+    ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_LIN, 95);
+    ui->tableSender->setItemDelegateForColumn(ST_COLS::SENDTAB_COL_LIN, new LinColumnDelegate(ui->tableSender));
     ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_DATA, 220);
     ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_TRIGGER, 270);
     ui->tableSender->setColumnWidth(ST_COLS::SENDTAB_COL_MODS, 270);
@@ -212,6 +238,43 @@ void FrameSenderWindow::createBlankRow()
     inhibitChanged = false;
 }
 
+QString FrameSenderWindow::linRowText(int model)
+{
+    switch (model) {
+    case CommFrame::LinChecksumUnknown: return "LIN";
+    case CommFrame::LinChecksumClassic: return "LIN classic";
+    case CommFrame::LinChecksumEnhanced: return "LIN enhanced";
+    default: return QString();
+    }
+}
+
+int FrameSenderWindow::linRowModel(const QString &text)
+{
+    const QString t = text.trimmed().toLower();
+    if (t.isEmpty() || t == "can" || t == "-" || t == "no" || t == "f") return -1;
+    if (t.contains("classic") || t == "c") return CommFrame::LinChecksumClassic;
+    if (t.contains("enh") || t == "e") return CommFrame::LinChecksumEnhanced;
+    return CommFrame::LinChecksumUnknown; //"LIN", "L", "T", "yes": the bus's checksum setting
+}
+
+void FrameSenderWindow::setLinCell(int line, int model)
+{
+    QTableWidgetItem *item = ui->tableSender->item(line, ST_COLS::SENDTAB_COL_LIN);
+    if (!item) return;
+    ui->tableSender->blockSignals(true);
+    item->setText(linRowText(model));
+    ui->tableSender->blockSignals(false);
+    processCellChange(line, ST_COLS::SENDTAB_COL_LIN);
+}
+
+void FrameSenderWindow::prepareLinFrame(CommFrame &frame)
+{
+    if (!frame.isLin() || frame.payload().isEmpty()) return; //a header alone has no checksum
+    const CommFrame::LinChecksumModel model = frame.linChecksumModel();
+    if (model == CommFrame::LinChecksumUnknown) return; //the connection uses the bus's setting
+    frame.setLinChecksum(CommFrame::linChecksum(frame.payload(), quint8(frame.frameId() & 0x3F), model));
+}
+
 void FrameSenderWindow::buildFrameCache()
 {
     CommFrame thisFrame;
@@ -340,7 +403,9 @@ void FrameSenderWindow::processIncomingFrame(CommFrame *frame)
                     sendingData[sd].count++;
                     doModifiers(sd);
                     updateGridRow(sd);
-                    CANConManager::getInstance()->sendFrame(sendingData[sd]);
+                    CommFrame frame = sendingData[sd];
+                    prepareLinFrame(frame);
+                    CANConManager::getInstance()->sendFrame(frame);
                 }
                 else //delayed sending frame
                 {
@@ -545,7 +610,7 @@ void FrameSenderWindow::loadSenderFile(QString filename)
             //FD/BRS are applied before Len/Data so the payload limits match the frame type
             const int processOrder[] = {ST_COLS::SENDTAB_COL_BUS, ST_COLS::SENDTAB_COL_ID, ST_COLS::SENDTAB_COL_EXT,
                                         ST_COLS::SENDTAB_COL_REM, ST_COLS::SENDTAB_COL_FD, ST_COLS::SENDTAB_COL_BRS,
-                                        ST_COLS::SENDTAB_COL_LEN, ST_COLS::SENDTAB_COL_DATA, ST_COLS::SENDTAB_COL_TRIGGER,
+                                        ST_COLS::SENDTAB_COL_LIN, ST_COLS::SENDTAB_COL_LEN, ST_COLS::SENDTAB_COL_DATA, ST_COLS::SENDTAB_COL_TRIGGER,
                                         ST_COLS::SENDTAB_COL_MODS, ST_COLS::SENDTAB_COL_EN};
             for (int k : processOrder) processCellChange(row, k);
 
@@ -654,7 +719,9 @@ void FrameSenderWindow::handleTick()
                     trigger->currCount++;
                     doModifiers(i);
                     updateGridRow(i);
-                    sendingList.append(sendingData[i]);
+                    CommFrame frame = sendingData[i];
+                    prepareLinFrame(frame);
+                    sendingList.append(frame);
                     if (trigger->ID > 0) trigger->readyCount = false; //reset flag if this is a timed ID trigger
                 }
             }
@@ -1160,6 +1227,9 @@ void FrameSenderWindow::processCellChange(int line, int col)
                 if (ui->tableSender->item(line, ST_COLS::SENDTAB_COL_BRS))
                     processCellChange(line, ST_COLS::SENDTAB_COL_BRS);
 
+                if (ui->tableSender->item(line, ST_COLS::SENDTAB_COL_LIN))
+                    processCellChange(line, ST_COLS::SENDTAB_COL_LIN);
+
                 if (ui->tableSender->item(line, ST_COLS::SENDTAB_COL_LEN) &&
                     !ui->tableSender->item(line, ST_COLS::SENDTAB_COL_LEN)->text().isEmpty())
                     processCellChange(line, ST_COLS::SENDTAB_COL_LEN);
@@ -1186,13 +1256,34 @@ void FrameSenderWindow::processCellChange(int line, int col)
             if (tempVal < 0) tempVal = 0;
             if (tempVal > 0x7FFFFFFF) tempVal = 0x7FFFFFFF;
             sendingData[line].setFrameId(tempVal);
-            if (sendingData[line].frameId() > 0x7FF) {
+            if (sendingData[line].frameId() > 0x7FF && !sendingData[line].isLin()) {
                 sendingData[line].setExtendedFrameFormat(true);
                 ui->tableSender->blockSignals(true);
                 ui->tableSender->item(line, ST_COLS::SENDTAB_COL_EXT)->setCheckState(Qt::Checked);
                 ui->tableSender->blockSignals(false);
             }
-            msg = dbcHandler->findMessage(sendingData[line].frameId());
+            //LIN IDs (0-63) overlap CAN IDs: a LIN row's message comes from the LIN files (LDFs), a CAN row's from the
+            //others; an ID only an LDF has makes the row a LIN row, with that file's checksum model
+            if (sendingData[line].isLin()) msg = dbcHandler->findMessage(sendingData[line].frameId(), true);
+            else
+            {
+                msg = dbcHandler->findMessage(sendingData[line].frameId(), false);
+                if (!msg && sendingData[line].frameId() <= 0x3F)
+                {
+                    msg = dbcHandler->findMessage(sendingData[line].frameId(), true);
+                    if (msg)
+                    {
+                        int model = CommFrame::LinChecksumUnknown;
+                        for (int f = 0; f < dbcHandler->getFileCount(); f++)
+                        {
+                            DBCFile *file = dbcHandler->getFileByIdx(f);
+                            if (file->messageHandler->findMsgByID(msg->ID) == msg && !file->linSchedules.isEmpty())
+                                model = file->linSchedules.checksumModel;
+                        }
+                        setLinCell(line, model);
+                    }
+                }
+            }
             if (msg)
             {
                 //a CAN FD message in the DBC file: send it as CAN FD, with BRS as the file says. Done before the
@@ -1236,16 +1327,46 @@ void FrameSenderWindow::processCellChange(int line, int col)
             break;
         case ST_COLS::SENDTAB_COL_REM:
             if (ui->tableSender->item(line, SENDTAB_COL_REM)->checkState() == Qt::Checked) {
-                if (rowIsFD(line)) {
+                if (sendingData[line].isLin()) {
+                    //LIN has no remote frames: a LIN row with no data (Len 0) is the header alone
+                    setCheckState(line, ST_COLS::SENDTAB_COL_REM, false);
+                } else if (rowIsFD(line)) {
                     //CAN FD has no remote frames
                     setCheckState(line, ST_COLS::SENDTAB_COL_REM, false);
                 } else {
                     sendingData[line].setFrameType(CommFrame::RemoteRequestFrame);
                 }
-            } else if (!rowIsFD(line)) {
+            } else if (!rowIsFD(line) && !sendingData[line].isLin()) {
                 sendingData[line].setFrameType(CommFrame::CANDataFrame);
             }
             break;
+        case ST_COLS::SENDTAB_COL_LIN:
+        {
+            const int model = linRowModel(ui->tableSender->item(line, ST_COLS::SENDTAB_COL_LIN)->text());
+            ui->tableSender->blockSignals(true);
+            ui->tableSender->item(line, ST_COLS::SENDTAB_COL_LIN)->setText(linRowText(model)); //tidied
+            ui->tableSender->blockSignals(false);
+            if (model >= 0)
+            {
+                //a LIN frame: no extended IDs, CAN FD or remote frames, at most 8 bytes
+                setCheckState(line, ST_COLS::SENDTAB_COL_EXT, false);
+                setCheckState(line, ST_COLS::SENDTAB_COL_REM, false);
+                setCheckState(line, ST_COLS::SENDTAB_COL_FD, false);
+                setCheckState(line, ST_COLS::SENDTAB_COL_BRS, false);
+                sendingData[line].setFlexibleDataRateFormat(false);
+                sendingData[line].setExtendedFrameFormat(false);
+                sendingData[line].setFrameType(CommFrame::LINDataFrame);
+                sendingData[line].clearLinInfo();
+                sendingData[line].setLinChecksumModel(CommFrame::LinChecksumModel(model));
+            }
+            else if (sendingData[line].isLin())
+            {
+                sendingData[line].clearLinInfo();
+                sendingData[line].setFrameType(CommFrame::CANDataFrame);
+            }
+            fitPayloadToFrameType(line);
+            break;
+        }
         case ST_COLS::SENDTAB_COL_FD:
             if (rowIsFD(line)) {
                 setCheckState(line, ST_COLS::SENDTAB_COL_REM, false); //CAN FD has no remote frames

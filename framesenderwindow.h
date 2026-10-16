@@ -27,10 +27,11 @@ enum ST_COLS
     SENDTAB_COL_REM = 6,
     SENDTAB_COL_FD = 7,     //CAN FD frame (up to 64 bytes)
     SENDTAB_COL_BRS = 8,    //CAN FD bit rate switch
-    SENDTAB_COL_DATA = 9,
-    SENDTAB_COL_TRIGGER = 10,
-    SENDTAB_COL_MODS = 11,
-    SENDTAB_COL_COUNT = 12,
+    SENDTAB_COL_LIN = 9,    //"", "LIN", "LIN classic" or "LIN enhanced": see linRowText()
+    SENDTAB_COL_DATA = 10,
+    SENDTAB_COL_TRIGGER = 11,
+    SENDTAB_COL_MODS = 12,
+    SENDTAB_COL_COUNT = 13,
 };
 
 class FrameSenderWindow : public QDialog
@@ -66,6 +67,12 @@ private:
     FrameSendData *sendData;
 
     void createBlankRow();
+    //LIN rows: the LIN cell's text for a checksum model (Unknown: the bus's setting), and back; -1 for a CAN row
+    static QString linRowText(int model);
+    static int linRowModel(const QString &text);
+    void setLinCell(int line, int model);
+    //a LIN frame as sent: the checksum worked out for the row's model (the data can change with every send)
+    static void prepareLinFrame(CommFrame &frame);
     void doModifiers(int);
     int fetchOperand(int, ModifierOperand);
     CommFrame* lookupFrame(int, int);

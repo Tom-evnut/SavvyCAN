@@ -28,6 +28,11 @@ This screen is laid out as a data grid.
   frame, and CAN FD bit rate switching (a faster data phase). BRS implies FD, and CAN FD frames can't be
   remote frames. Sending CAN FD frames needs a connection that supports them (e.g. LAWICEL with CAN FD
   enabled, or a GVRET device that accepts CAN FD frames).
+* "LIN" makes the line a LIN frame, sent with SavvyCAN as the LIN master (the bus's connection must be in master
+  mode): "LIN" uses the bus's checksum setting, "LIN classic" and "LIN enhanced" choose the checksum for this line
+  (it's worked out again each time, so modifiers can change the data). LIN frames have an ID of 0 to 0x3F and up to
+  8 bytes; a line with no data (Len 0) sends the header alone, for a slave to answer. An ID that only a loaded LDF
+  knows turns the line into a LIN line with that LDF's checksum model.
 * The fifth field is "Data" and specifies what values will be sent for the next frame. These values can be
   automatically updated by the modifiers which will be covered later on.
 * The sixth field is "Trigger" which specifies when this frame will be sent. Proper syntax for triggers is

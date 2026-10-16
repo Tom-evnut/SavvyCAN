@@ -9,12 +9,14 @@
 #include "bus_protocols/uds_handler.h"
 #include "bus_protocols/handler_factory.h"
 #include "scriptingwindow.h"
+#include "linformat.h"
 
 ScriptContainer::ScriptContainer()
 {
     qDebug() << "Script Container Constructor";
     scriptEngine = new QJSEngine();
     canHelper = new CANScriptHelper(scriptEngine);
+    linHelper = new LINScriptHelper(scriptEngine);
     isoHelper = new ISOTPScriptHelper(scriptEngine);
     udsHelper = new UDSScriptHelper(scriptEngine);
     connect(&timer, SIGNAL(timeout()), this, SLOT(tick()));
@@ -35,6 +37,13 @@ ScriptContainer::~ScriptContainer()
         QCoreApplication::removePostedEvents(canHelper);
         delete canHelper;
         canHelper = nullptr;
+    }
+    if (linHelper)
+    {
+        linHelper->clearFilters();
+        QCoreApplication::removePostedEvents(linHelper);
+        delete linHelper;
+        linHelper = nullptr;
     }
     if (isoHelper)
     {
@@ -60,6 +69,7 @@ void ScriptContainer::compileScript()
     emit sendLog("Compiling script...");
 
     canHelper->clearFilters();
+    linHelper->clearFilters();
     isoHelper->clearFilters();
     udsHelper->clearFilters();
 
@@ -82,6 +92,8 @@ void ScriptContainer::compileScript()
         scriptEngine->globalObject().setProperty("host", hostObj);
         QJSValue canObj = scriptEngine->newQObject(canHelper);
         scriptEngine->globalObject().setProperty("can", canObj);
+        QJSValue linObj = scriptEngine->newQObject(linHelper);
+        scriptEngine->globalObject().setProperty("lin", linObj);
         QJSValue isoObj = scriptEngine->newQObject(isoHelper);
         scriptEngine->globalObject().setProperty("isotp", isoObj);
         QJSValue udsObj = scriptEngine->newQObject(udsHelper);
@@ -97,6 +109,7 @@ void ScriptContainer::compileScript()
             if (canRxCallback.isCallable()) qDebug() << "Using legacy gotCANFrame callback";
         }
         canHelper->setRxCallback(canRxCallback);
+        linHelper->setRxCallback(scriptEngine->globalObject().property("gotLINFrame"));
         isoHelper->setRxCallback(scriptEngine->globalObject().property("gotISOTPMessage"));
         udsHelper->setRxCallback(scriptEngine->globalObject().property("gotUDSMessage"));
 
@@ -309,6 +322,7 @@ void CANScriptHelper::sendFDFrame(QJSValue bus, QJSValue id, QJSValue length, QJ
 void CANScriptHelper::gotTargettedFrame(const CommFrame &frame)
 {
     if (!gotFrameFunction.isCallable()) return; //nothing to do if we can't even call the function
+    if (frame.isLin()) return; //LIN frames go to gotLINFrame (their IDs overlap CAN IDs)
     //qDebug() << "Got frame in script interface";
 
     const unsigned char *data = reinterpret_cast<const unsigned char *>(frame.payload().constData());
@@ -327,6 +341,95 @@ void CANScriptHelper::gotTargettedFrame(const CommFrame &frame)
             gotFrameFunction.call(args);
             return; //as soon as one filter matches we jump out
         }
+    }
+}
+
+
+
+
+/* LINScriptHelper methods */
+
+LINScriptHelper::LINScriptHelper(QJSEngine *engine)
+{
+    scriptEngine = engine;
+}
+
+void LINScriptHelper::setRxCallback(QJSValue cb)
+{
+    gotFrameFunction = cb;
+}
+
+void LINScriptHelper::setFilter(QJSValue id, QJSValue mask, QJSValue bus)
+{
+    CANFilter filter;
+    filter.setFilter(id.toUInt() & 0x3F, mask.toUInt() & 0x3F, bus.toInt());
+    filters.append(filter);
+    CANConManager::getInstance()->addTargettedFrame(filter.bus, filter.ID, filter.mask, this);
+}
+
+void LINScriptHelper::clearFilters()
+{
+    for (const CANFilter &filter : std::as_const(filters))
+        CANConManager::getInstance()->removeTargettedFrame(filter.bus, filter.ID, filter.mask, this);
+    filters.clear();
+}
+
+void LINScriptHelper::sendFrame(QJSValue bus, QJSValue id, QJSValue data, QJSValue checksum)
+{
+    CommFrame frame(CommFrame::LINDataFrame);
+    frame.setFrameId(id.toUInt() & 0x3F);
+    frame.setBus(bus.toInt());
+    QByteArray bytes;
+    if (data.isArray())
+    {
+        const int len = qMin(data.property("length").toInt(), int(CommFrame::LIN_MAX_PAYLOAD));
+        for (int i = 0; i < len; i++) bytes.append(char(data.property(i).toInt()));
+    }
+    else qDebug() << "lin.sendFrame: data isn't an array";
+    frame.setPayload(bytes);
+    const QString model = checksum.isUndefined() ? QString() : checksum.toString().toLower();
+    if (!bytes.isEmpty() && (model == "classic" || model == "enhanced"))
+    {
+        const auto m = model == "classic" ? CommFrame::LinChecksumClassic : CommFrame::LinChecksumEnhanced;
+        frame.setLinChecksum(CommFrame::linChecksum(bytes, quint8(frame.frameId()), m));
+        frame.setLinChecksumModel(m);
+    }
+    CANConManager::getInstance()->sendFrame(frame);
+}
+
+void LINScriptHelper::sendHeader(QJSValue bus, QJSValue id)
+{
+    CommFrame frame(CommFrame::LINDataFrame);
+    frame.setFrameId(id.toUInt() & 0x3F);
+    frame.setBus(bus.toInt());
+    CANConManager::getInstance()->sendFrame(frame);
+}
+
+void LINScriptHelper::gotTargettedFrame(const CommFrame &frame)
+{
+    if (!gotFrameFunction.isCallable() || !frame.isLin()) return;
+    for (CANFilter &filter : filters)
+    {
+        if (!filter.checkFilter(frame.frameId(), frame.getBus())) continue;
+        const QByteArray payload = frame.payload();
+        QJSValue dataBytes = scriptEngine->newArray(uint(payload.size()));
+        for (int j = 0; j < payload.size(); j++) dataBytes.setProperty(quint32(j), QJSValue(int(quint8(payload.at(j)))));
+        QJSValue info = scriptEngine->newObject();
+        info.setProperty("checksum", frame.hasLinChecksum() ? QJSValue(int(frame.linChecksumByte())) : QJSValue());
+        info.setProperty("model", frame.linChecksumModel() == CommFrame::LinChecksumClassic ? "classic"
+                                  : frame.linChecksumModel() == CommFrame::LinChecksumEnhanced ? "enhanced" : "");
+        info.setProperty("headerOnly", frame.isLinHeaderOnly());
+        info.setProperty("received", frame.isReceived());
+        QStringList errors;
+        if (frame.hasLinChecksumError()) errors << "CHECKSUM";
+        if (frame.hasLinParityError()) errors << "PARITY";
+        for (const LinFormat::ErrorName &e : LinFormat::errorNames())
+            if ((frame.linErrors() & e.flag) && e.flag != CommFrame::LinErrParity) errors << e.name;
+        QJSValue errorList = scriptEngine->newArray(uint(errors.size()));
+        for (int j = 0; j < errors.size(); j++) errorList.setProperty(quint32(j), errors.at(j));
+        info.setProperty("errors", errorList);
+        gotFrameFunction.call({frame.getBus(), int(frame.frameId()), dataBytes, info});
+        return; //one call per frame, whichever filters match
     }
 }
 

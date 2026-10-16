@@ -36,6 +36,8 @@ tick () - If you registered to receive a periodic tick within your setup functio
 
 gotCommFrame (bus, id, len, data) - A callback that will be called whenever a CAN frame comes in that you've registered for. You did register for frames in your setup function didn't you? Well, if you use one of the below callbacks you might not need this one. For backward compatibility, older scripts that still define gotCANFrame(bus, id, len, data) are also accepted.
 
+gotLINFrame (bus, id, data, info) - Called for LIN frames that pass a filter set with lin.setFilter. data is the response (empty for a header nobody answered). info.checksum is the checksum received, info.model "classic", "enhanced" or "" (not known), info.headerOnly is true for a header with no response, info.errors lists the errors (for example "CHECKSUM", "PARITY", "NORESP") and info.received is false for frames SavvyCAN sent. LIN frames don't go to gotCommFrame.
+
 gotISOTPMessage (bus, id, len, data) - If you are instead looking for ISO-TP messages (which could have been multiple CAN frames in length) then you can create this function and it will automatically be registered with the system. But, you still will need to set which ISO-TP message IDs you want to receive. That is covered later on.
 
 gotUDSMessage (bus, id, service, subfunc, len, data) - UDS messages are transmitted over ISO-TP but with additional structure. If you're looking to interface directly at the UDS level then you can create this function to have it automatically registered. As with raw CAN and ISO-TP you still need to specify which messages IDs you are interested in.
@@ -63,6 +65,19 @@ can.clearFilters() - remove all filters and revert to a clean state. You will no
 can.sendFrame(bus, id, length, data) - Send a CAN frame out the given bus. The CAN id will be what you set as will the length. The length can thus be different from the actual length of "data" which should be a valid javascript array. The length can not exceed 8. The frame will be sent as soon as possible so long as that bus is connected and not in listen only mode.
 
 can.sendFDFrame(bus, id, length, data, brs) - Send a CAN FD frame. Works like sendFrame but the length can be up to 64. A length that isn't a valid CAN FD size is padded with zeros up to the next one (12, 16, 20, 24, 32, 48 or 64). Set brs to true to use bit rate switching (faster data phase). The connection has to support sending CAN FD frames.
+
+The lin Object
+==============
+
+LIN frames, with SavvyCAN as the LIN master. The bus's connection (a Microchip LIN Serial Analyzer or a PEAK LIN interface) has to be in master mode.
+
+lin.setFilter(id, mask, bus) - Like can.setFilter, for LIN IDs (0 to 0x3F): matching LIN frames are passed to gotLINFrame.
+
+lin.clearFilters() - Remove all LIN filters.
+
+lin.sendFrame(bus, id, data, checksum) - Send a header and a response: data is an array of 1 to 8 bytes. checksum is "classic" or "enhanced"; leave it out to use the bus's checksum setting.
+
+lin.sendHeader(bus, id) - Send a header alone, for a slave to answer. The answer comes back through gotLINFrame if a filter lets it through.
 
 The isotp Object
 ================
