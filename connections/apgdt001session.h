@@ -12,7 +12,7 @@
  * only moves reports between this and hidapi, so this is what the tests exercise.
  *
  * Output reports are 64 bytes (the connection adds the HID report ID, 0): a command byte and its operands. Protocol
- * as worked out from Microchip's LIN Library API Demo (docs/lin-roadmap.md, D1), not confirmed on a device yet:
+ * as worked out from Microchip's LIN Library API Demo (docs/lin-roadmap.md, D1) and checked on a device:
  *   01 00   cold reset          01 01   warm reset          01 02   status request          01 07   clear comms
  *   02 <29-byte configuration block> 00    write the configuration block
  * Configuration block (the bytes known so far; the rest are Microchip's defaults):
@@ -52,9 +52,24 @@ public:
      * Sending as master: 03 <n+6> 84 <n+2> <PID> <data...> <checksum> 1F 77 00, a script that sends a header and a
      * response of n data bytes (Microchip's library: the first length counts the script from 84 to 77, the second the
      * PID, data and checksum). With no data, 03 05 84 01 <PID> 1F 77 00: the same script with the PID alone, which
-     * should send just the header for a slave to answer - not confirmed on a device.
+     * sends just the header for a slave to answer (checked on a device). Sending a response hasn't been tried yet.
      */
     static QByteArray transmitReport(quint8 id, const QByteArray &data, quint8 checksum);
+
+    /*
+     * Pacing what's sent as master. The analyser runs each transmit script as soon as it arrives, even while a slave
+     * is still answering the last header (seen on a device: headers sent back to back went out 4 ms apart at 9600
+     * bit/s and no slave answered), so transmit reports are queued and each waits for the slot of the frame before
+     * it: the header and response at the 40 % longer frame time LIN allows, and a header alone gets the slot of the
+     * longest response (it isn't known how many bytes the slave will send).
+     */
+    static constexpr int MAX_QUEUED_TRANSMITS = 256;
+    static qint64 frameSlotUs(int baud, int dataBytes); //dataBytes 0: a header alone
+    //false if the queue is full (the frame is dropped)
+    bool queueTransmit(quint8 id, const QByteArray &data, quint8 checksum);
+    //the transmit reports whose turn has come, to send now
+    QList<QByteArray> takeDueTransmits(qint64 nowUs);
+    int queuedTransmits() const { return int(mTransmits.size()); }
 
     //the reports to send, in order; both end with a status request whose reply is checked (check())
     QList<QByteArray> startCommands(int baud, qint64 nowUs);
@@ -92,6 +107,10 @@ private:
     qint64 mRequestUs = 0;
     quint64 mStreamBytesSeen = 0;
     qint64 mLastStreamUs = 0;
+
+    struct Transmit { QByteArray report; qint64 slotUs; };
+    QList<Transmit> mTransmits;
+    qint64 mNextTransmitUs = 0;
 };
 
 #endif // APGDT001SESSION_H

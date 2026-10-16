@@ -62,6 +62,34 @@ QByteArray Apgdt001Session::transmitReport(quint8 id, const QByteArray &data, qu
     return commandReport(command);
 }
 
+qint64 Apgdt001Session::frameSlotUs(int baud, int dataBytes)
+{
+    //34-bit header, then 10 bits for each data byte and the checksum; LIN allows 40 % more, and a little space after
+    if (baud <= 0) baud = 19200;
+    const int bytes = dataBytes > 0 ? qMin(dataBytes, int(CommFrame::LIN_MAX_PAYLOAD)) : CommFrame::LIN_MAX_PAYLOAD;
+    return (34 + (bytes + 1) * 10) * 14 * 100000ll / baud + 1000;
+}
+
+bool Apgdt001Session::queueTransmit(quint8 id, const QByteArray &data, quint8 checksum)
+{
+    if (mTransmits.size() >= MAX_QUEUED_TRANSMITS) return false;
+    mTransmits.append({transmitReport(id, data, checksum), frameSlotUs(mBaud, int(data.size()))});
+    return true;
+}
+
+QList<QByteArray> Apgdt001Session::takeDueTransmits(qint64 nowUs)
+{
+    //one at a time: the slot starts when the frame is actually sent, which may be after it was due
+    QList<QByteArray> due;
+    if (!mTransmits.isEmpty() && nowUs >= mNextTransmitUs)
+    {
+        const Transmit t = mTransmits.takeFirst();
+        due.append(t.report);
+        mNextTransmitUs = nowUs + t.slotUs;
+    }
+    return due;
+}
+
 void Apgdt001Session::armCheck(int baud, qint64 nowUs)
 {
     mBaud = baud;
@@ -152,4 +180,6 @@ void Apgdt001Session::reset()
     mCheckMessage.clear();
     mCheckResultNew = false;
     mStreamBytesSeen = mParser.streamBytes();
+    mTransmits.clear();
+    mNextTransmitUs = 0;
 }

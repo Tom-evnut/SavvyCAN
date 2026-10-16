@@ -20,6 +20,9 @@ private slots:
     void testQuietBusFlush();
     void testQuietTime();
     void testTransmitReport();
+    void testFrameSlot();
+    void testTransmitPacing();
+    void testTransmitQueueLimit();
 };
 
 // a status reply: 81, 82 (the 24 echoed configuration bytes), 83, 84, end of report
@@ -222,6 +225,66 @@ void TestApgdt001Session::testTransmitReport()
              QByteArray::fromHex("030784038501FE1F7700"));
     // a header alone
     QCOMPARE(Apgdt001Session::transmitReport(0x01, QByteArray(), 0).left(8), QByteArray::fromHex("03058401C11F7700"));
+}
+
+void TestApgdt001Session::testFrameSlot()
+{
+    // 34-bit header + (bytes + 1) x 10 bits, 40 % on top, and 1 ms
+    QCOMPARE(Apgdt001Session::frameSlotUs(19200, 2), qint64(64 * 14 * 100000ll / 19200 + 1000));
+    // a header alone gets the slot of 8 bytes: 19.1 ms at 9600 bit/s (on a device, 16 ms was enough for 2 bytes)
+    QCOMPARE(Apgdt001Session::frameSlotUs(9600, 0), qint64(124 * 14 * 100000ll / 9600 + 1000));
+    QCOMPARE(Apgdt001Session::frameSlotUs(9600, 8), Apgdt001Session::frameSlotUs(9600, 0));
+}
+
+void TestApgdt001Session::testTransmitPacing()
+{
+    Apgdt001Session s;
+    s.startCommands(9600, 0);
+    const qint64 headerSlot = Apgdt001Session::frameSlotUs(9600, 0);
+    const qint64 twoByteSlot = Apgdt001Session::frameSlotUs(9600, 2);
+
+    QVERIFY(s.queueTransmit(0x02, QByteArray(), 0));
+    QVERIFY(s.queueTransmit(0x06, QByteArray(), 0));
+    QVERIFY(s.queueTransmit(0x2F, QByteArray::fromHex("2500"), 0xDA));
+    QCOMPARE(s.queuedTransmits(), 3);
+
+    // the first goes at once, in the order queued
+    QList<QByteArray> due = s.takeDueTransmits(1000);
+    QCOMPARE(due.size(), 1);
+    QCOMPARE(due.at(0), Apgdt001Session::transmitReport(0x02, QByteArray(), 0));
+    // the next waits for the header's slot
+    QVERIFY(s.takeDueTransmits(1000 + headerSlot - 1).isEmpty());
+    due = s.takeDueTransmits(1000 + headerSlot);
+    QCOMPARE(due.size(), 1);
+    QCOMPARE(due.at(0), Apgdt001Session::transmitReport(0x06, QByteArray(), 0));
+    // sent late: its slot starts when it's sent, so the frame after it still gets a full slot
+    const qint64 late = 1000 + 2 * headerSlot + 7000;
+    QCOMPARE(s.takeDueTransmits(late).size(), 1);
+    QCOMPARE(s.queuedTransmits(), 0);
+    QVERIFY(s.queueTransmit(0x07, QByteArray(), 0));
+    QVERIFY(s.takeDueTransmits(late + twoByteSlot - 1).isEmpty());
+    QCOMPARE(s.takeDueTransmits(late + twoByteSlot).size(), 1);
+    // an idle bus: the next frame goes at once
+    QVERIFY(s.queueTransmit(0x08, QByteArray(), 0));
+    QCOMPARE(s.takeDueTransmits(late + 1000000).size(), 1);
+
+    // a new connection drops what's waiting
+    QVERIFY(s.queueTransmit(0x02, QByteArray(), 0));
+    QVERIFY(s.queueTransmit(0x06, QByteArray(), 0));
+    s.reset();
+    QCOMPARE(s.queuedTransmits(), 0);
+    QVERIFY(s.queueTransmit(0x02, QByteArray(), 0));
+    QCOMPARE(s.takeDueTransmits(0).size(), 1);
+}
+
+void TestApgdt001Session::testTransmitQueueLimit()
+{
+    Apgdt001Session s;
+    s.startCommands(19200, 0);
+    for (int i = 0; i < Apgdt001Session::MAX_QUEUED_TRANSMITS; i++) QVERIFY(s.queueTransmit(0x02, QByteArray(), 0));
+    QVERIFY(!s.queueTransmit(0x02, QByteArray(), 0));
+    QCOMPARE(s.takeDueTransmits(0).size(), 1);
+    QVERIFY(s.queueTransmit(0x02, QByteArray(), 0));
 }
 
 QTEST_MAIN(TestApgdt001Session)

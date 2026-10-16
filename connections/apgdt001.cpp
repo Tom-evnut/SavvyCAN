@@ -231,6 +231,7 @@ void Apgdt001::readDevice()
     mFrames.clear();
     if (n > 0) mSession.processReport(reinterpret_cast<const char *>(report), n, nowUs, hostTimestamp(), mFrames);
     mSession.poll(nowUs, hostTimestamp(), mFrames);
+    sendDueTransmits();
     for (const CommFrame &frame : std::as_const(mFrames)) mChecksumModels.learn(frame);
     reportCheck();
     deliverFrames();
@@ -339,8 +340,19 @@ bool Apgdt001::piSendFrame(const CommFrame &frame)
     }
 #ifdef HAVE_HIDAPI
     if (!mDevice) return false;
-    return sendReports({Apgdt001Session::transmitReport(quint8(lin.frameId()), lin.payload(), lin.linChecksumByte())});
+    //queued, so each frame gets its slot on the bus (see Apgdt001Session::queueTransmit())
+    if (!mSession.queueTransmit(quint8(lin.frameId()), lin.payload(), lin.linChecksumByte()))
+    {
+        emit debugOutput("APGDT001: not sent: too many frames waiting for the bus");
+        return false;
+    }
+    return sendDueTransmits();
 #else
     return false;
 #endif
+}
+
+bool Apgdt001::sendDueTransmits()
+{
+    return sendReports(mSession.takeDueTransmits(mClock.nsecsElapsed() / 1000));
 }
