@@ -48,7 +48,7 @@ These shape everything after and are cheap to settle before code lands.
 
 | Option | For | Against |
 |---|---|---|
-| **APGDT001 (Microchip LIN Serial Analyzer)** | Already on the bench; USB; Microchip lists host (master), slave and non-intrusive snooper roles, so it covers monitoring and both sending modes | Its PC protocol isn't publicly documented (see below); a new connection type, not a reuse of GVRET |
+| **APGDT001 (Microchip LIN Serial Analyzer)** | Already on the bench; USB; Microchip lists host (master), slave and non-intrusive snooper roles, so it covers monitoring and both sending modes | Its PC protocol isn't publicly documented (mostly worked out below from Microchip's demo); coarse timestamps (0.409 ms); a new connection type, not a reuse of GVRET |
 | A. GVRET firmware (ESP32RET fork, M2RET) | The GVRET protocol already has LIN1/LIN2 bus settings; the fork already maintains ESP32RET (`Tom-evnut/ESP32RET`) and the GVRET test mocks; LIN is UART-based and cheap to add to an ESP32 with a LIN transceiver | Needs new GVRET opcodes (a protocol proposal upstream, like #1140); needs a board with a LIN transceiver; UART break/error detection on ESP32 is coarse |
 | B. Pico-based LIN sniffer/injector (like pico-flexray) | PIO gives bit-level timing: break length, sync errors, per-byte timestamps, collision detection; same USB/libusb path as pico-flexray | A new firmware project to maintain |
 | C. Commercial adapters (PEAK PLIN-USB, Vector XL, Kvaser LIN) | Robust, master and slave modes, many users already own one | Vendor SDKs, Windows-centric, licensing to check per SDK; one driver per vendor |
@@ -57,16 +57,58 @@ These shape everything after and are cheap to settle before code lands.
 **Decision:** the APGDT001 first, because it's the adapter on the bench. Keep the connection layer generic so GVRET
 (A), a Pico sniffer (B) and vendor adapters (C) can follow as separate connections.
 
-**APGDT001 unknowns, to settle before its connection is written:**
+**How the APGDT001 talks to a PC.** Worked out from Microchip's *LIN Library API Demo* (Java; library jars read as
+bytecode, not run). Nothing here has been checked against the device yet; the last list says what to confirm.
 
-- How it enumerates on USB (Microchip VID `0x04D8`): virtual COM port, HID or a custom driver. Microchip's newer
-  analyzer GUI (v3.0.0) is Java and runs on Windows, Linux and macOS, which suggests a standard USB class, but that
-  needs checking on the device.
-- Its command set: frames in and out, bus speed, role selection (snoop / master / slave), slave response setup,
-  timestamps and error reporting. Sources: the *LIN Serial Analyzer User's Guide* (DS51675) on Microchip's APGDT001
-  page, and a USB capture (USBPcap + Wireshark) of Microchip's GUI driving the device.
-- What it reports: per-frame timestamps and their resolution, checksum and parity errors, headers with no response.
-  This decides which `CommFrame` LIN details the connection can fill in.
+- **Transport: USB HID**, no vendor driver. The library opens the HID device whose product ID is `0x0A04` (it
+  doesn't check the vendor ID; Microchip's is `0x04D8`) and exchanges 64-byte reports, report ID 0 (65 bytes with
+  the ID on Windows). Qt has no HID module, so the connection needs **hidapi**, an optional build dependency like
+  libusb is for pico-flexray. Works on Windows, Linux and macOS.
+- **Firmware family: PICkit Serial Analyzer.** The library calls the device "PKSA"/"PICkitS"; commands, the
+  configuration block and the tagged receive stream follow that tool's design.
+- **Output reports** (byte 0 = report ID, then a command):
+  - `01 00` cold reset, `01 01` warm reset, `01 02` status request, `01 07` clear comms, `0B AB` special status
+    request, `03 01 20` reset the event timer.
+  - `02 …` writes the configuration block (about 24 bytes; written between a cold and a warm reset, then read back
+    with a status request and compared). Bytes 22-23 of the block set the **bit rate**: a 16-bit divisor
+    `round(20 MHz / 4 / baud) - 1`, low byte first. The library's default block gives 10 kbit/s; the demo then sets
+    19200.
+  - `03 <n+6> 84 <n+2> <PID> <data…> <checksum> 1F 77 00` sends a frame **as master** (header + response with
+    `n` data bytes; the first length counts the script bytes from `84` to `77`, the second the PID, data and
+    checksum): a small script for the PICkit Serial engine. The host computes the PID and the checksum, so
+    either checksum model works, and a wrong checksum can be sent on purpose.
+  - Slave responses (the device answering headers as a **slave**) live in a device buffer the library calls
+    CBUF3: cleared with `0A`, loaded with `05 <count> …` ("slave profiles").
+  - Listen / transmit / display-all are host-side parser modes in the library, not device commands.
+- **Input reports** are a run of packets, each starting with a type byte: `80` ends the report; `81`, `82`, `83`,
+  `84`, `88` are fixed-size status packets (3, 25, 21, 7 and 2 bytes); `85`, `86`, `87` are `<type> <len> <bytes>`
+  and carry the receive stream.
+- **Receive stream** (tags; `0x1n` tags are the PICkit Serial common ones, `0x8n` the LIN ones):
+  - `83`: break seen, a new frame starts (and ends any frame still being built);
+  - `10 b`: one byte from the bus: the first is the protected ID, then the data bytes and the checksum;
+  - `13 lo hi`: event timer, in ticks of **0.409 ms**; `14`: timer rollover (+26.8 s);
+  - `85 lo hi`: bit rate measured by the device; `82 x`: status error; `1C 77`: script finished;
+  - `11 n …`: a block of bytes; `12`, `15`, `1A`, `80`, `81`, `86`, `87` carry bytes the library skips; `84`, `88`,
+    `16`-`19`, `1B` stand alone.
+- **What that means for SavvyCAN:**
+  - Frames aren't delimited by the device. A frame ends at the next break, after 9 bytes (PID + 8 data + checksum)
+    or after a bit-rate-dependent timeout; the last byte is the checksum. A PID with nothing after it is a header
+    with no response.
+  - The device doesn't check checksums or parity. `CommFrame::verifyLinChecksum()` and the PID parity check do it,
+    and find out each ID's checksum model.
+  - Timestamps come from the device but are coarse: 0.409 ms per tick (about 2 bit times at 19200), one per frame.
+    Good enough for schedules and periods, not for bit timing.
+  - Errors the library reports per frame: bus timeout (1), timer error (3), status error (4), event marker error
+    (5), next header received before the frame finished (6). They map onto `CommFrame`'s LIN error flags
+    (no response / incomplete response / sync) once checked on the device.
+- **Still to confirm on the device:** the vendor ID; which of input packets `85`-`87` carries the bus stream; what
+  the rest of the configuration block means (role, autobaud, buffer flushing; only the bit rate is known); the
+  slave-profile layout; whether the timer marker comes before or after the PID; how frames the device sends itself
+  show up in the stream. Method: a USB capture (USBPcap + Wireshark) of Microchip's demo or GUI driving the
+  device on the bench, plus the *LIN Serial Analyzer User's Guide* (DS51675).
+- **Licence:** Microchip's demo and library may only be used with Microchip products. SavvyCAN's connection must be
+  written from the protocol as described here, not ported from Microchip's code, and none of their files go into
+  the repository (they stay in the git-ignored `test/lin-data/apgdt001/`).
 
 ### D2. How a LIN frame lives in `CommFrame`
 
@@ -120,9 +162,12 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 - **Model:** the D2 frame semantics and metadata (on top of the shared metadata design), `isValid()`,
   `isDataFrame()`, PID parity and both checksum models as helpers with unit tests.
 - **Bus type:** D3, with LIN buses shown in the connection window (speed, mode read-only at first).
-- **APGDT001 connection:** "Microchip LIN Serial Analyzer (APGDT001)" in the new-connection dialog, snoop mode:
-  bus speed, received frames with whatever checksum, error and timing details the device reports (D1 unknowns
-  settled first). Device time mapped onto SavvyCAN's clock as the pico-flexray parser does, if it has one.
+- **APGDT001 connection:** "Microchip LIN Serial Analyzer (APGDT001)" in the new-connection dialog, listening only:
+  hidapi (optional at build time, like libusb), reset and configuration block with the bit rate, then the
+  receive stream parsed into `CommFrame`s (D1): PID parity and checksum checked with the step 1 helpers, header-only
+  frames kept, the library's per-frame errors mapped to LIN error flags. The 0.409 ms event timer, unwrapped with its
+  rollover markers, mapped onto SavvyCAN's clock as the pico-flexray parser does. A parser kept separate from the
+  USB code, as `picoflexrayparser` is, so the mock and the tests can feed it bytes.
 - **GVRET (later, separate branch):** a receive opcode for LIN frames, applying the LIN1/LIN2 settings from
   `GET_EXT_BUSES`; firmware side in the ESP32RET fork. Old firmware keeps working (the opcode is only expected after
   the device says it supports it, as with `GET_FD`).
@@ -201,8 +246,13 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 - **`CommFrame` metadata** is the change everything rides on. `linInfo` follows `flexRayInfo`'s pattern (D2), so
   merging the two branches only conflicts textually in `can_structs.h`.
-- **APGDT001 protocol:** undocumented publicly, so the connection depends on the user's guide and a USB capture. If
-  the device turns out to need a closed Windows driver or DLL, the connection may be Windows-only.
+- **APGDT001 protocol:** worked out from Microchip's demo library, not from a specification, so each point gets
+  checked with a USB capture before code depends on it (D1 lists the open ones). It's plain HID, so no closed driver
+  or DLL is needed on any platform.
+- **APGDT001 limits:** 0.409 ms timestamps; frames delimited by the host (next break, length or timeout), so a
+  response cut short by a timeout can't always be told from a shorter frame.
+- **Microchip's licence:** their demo and library are used only to learn the protocol; nothing of theirs is copied
+  into SavvyCAN or committed.
 - **Bus type** touches saved settings (`CANBus` stream operators): keep old saved connections loading.
 - **GVRET protocol changes** need firmware and an upstream protocol proposal; keep them behind a capability query so
   old devices and old SavvyCAN builds don't misread the stream.
@@ -215,7 +265,8 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ## 6. Suggested sequencing
 
-1. Phase 0: D1 and D2 are decided; settle the APGDT001 unknowns (enumeration, user's guide, USB capture) and D3/D4.
+1. Phase 0: D1 and D2 are decided and the APGDT001 protocol is mostly known (D1); confirm the open points with a
+   USB capture on the bench, and settle D3/D4.
 2. Phase 1, in this order: the `CommFrame` LIN model and its unit tests (no hardware needed), the bus type, the
    APGDT001 connection, then the frame list and native CSV.
 3. Phase 2 (LDF and decoding).
