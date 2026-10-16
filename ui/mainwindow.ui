@@ -462,6 +462,7 @@
     <addaction name="actionFlow_View"/>
     <addaction name="actionGraph_Dta"/>
     <addaction name="actionFrame_Data_Analysis"/>
+    <addaction name="actionLIN_Schedule_Analysis"/>
     <addaction name="actionFile_Comparison"/>
     <addaction name="actionDBC_Comparison"/>
     <addaction name="actionRange_State_2"/>
@@ -569,6 +570,11 @@
   <action name="actionFrame_Data_Analysis">
    <property name="text">
     <string>Frame Data Analysis</string>
+   </property>
+  </action>
+  <action name="actionLIN_Schedule_Analysis">
+   <property name="text">
+    <string>LIN Schedule Analysis</string>
    </property>
   </action>
   <action name="actionLoad_DBC_File">

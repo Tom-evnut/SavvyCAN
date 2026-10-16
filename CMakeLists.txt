@@ -99,6 +99,8 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     framesenderwindow.cpp framesenderwindow.h
     linschedulerunner.cpp linschedulerunner.h
     linschedulewindow.cpp linschedulewindow.h
+    linscheduleanalysis.cpp linscheduleanalysis.h
+    re/linscheduleanalysiswindow.cpp re/linscheduleanalysiswindow.h
     helpwindow.cpp helpwindow.h
     jsedit.cpp jsedit.h
     main.cpp

@@ -15,6 +15,7 @@
 #include "re/frameinfowindow.h"
 #include "frameplaybackwindow.h"
 #include "linschedulewindow.h"
+#include "re/linscheduleanalysiswindow.h"
 #include "bisectwindow.h"
 #include "re/flowviewwindow.h"
 #include "framesenderwindow.h"
@@ -81,6 +82,7 @@ private slots:
     void handleContinousLogging();
     void showGraphingWindow();
     void showFrameDataAnalysis();
+    void showLinScheduleAnalysis();
     void clearFrames();
     void expandAllRows();
     void collapseAllRows();
@@ -193,6 +195,7 @@ private:
     QList<GraphingWindow *> graphWindows;
 
     FrameInfoWindow *frameInfoWindow;
+    LinScheduleAnalysisWindow *linScheduleAnalysisWindow;
     FramePlaybackWindow *playbackWindow;
     LinScheduleWindow *linScheduleWindow;
     FlowViewWindow *flowViewWindow;

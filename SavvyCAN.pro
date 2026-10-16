@@ -62,6 +62,8 @@ SOURCES += main.cpp\
     framesenderwindow.cpp \
     linschedulerunner.cpp \
     linschedulewindow.cpp \
+    linscheduleanalysis.cpp \
+    re/linscheduleanalysiswindow.cpp \
     framefileio.cpp \
     mainsettingsdialog.cpp \
     scriptingwindow.cpp \
@@ -167,6 +169,8 @@ HEADERS  += mainwindow.h \
     framesenderwindow.h \
     linschedulerunner.h \
     linschedulewindow.h \
+    linscheduleanalysis.h \
+    re/linscheduleanalysiswindow.h \
     can_trigger_structs.h \
     framefileio.h \
     config.h \
