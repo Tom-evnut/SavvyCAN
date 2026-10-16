@@ -186,8 +186,10 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
   receive stream parsed into `CommFrame`s (D1): PID parity and checksum checked with the step 1 helpers, header-only
   frames kept, the library's per-frame errors mapped to LIN error flags. The 0.409 ms event timer, unwrapped with its
   rollover markers, mapped onto SavvyCAN's clock as the pico-flexray parser does. A parser kept separate from the
-  USB code, as `picoflexrayparser` is, so the mock and the tests can feed it bytes. *Parser done
-  (`connections/apgdt001parser.*` on `lin-phase1-model`, with unit tests); the USB connection is next.*
+  USB code, as `picoflexrayparser` is, so the mock and the tests can feed it bytes. *Done on `lin-phase1-model`
+  (monitor mode, not yet tried on a device): `connections/apgdt001parser.*` (receive stream),
+  `apgdt001session.*` (commands, configuration check, quiet-bus flush) and `apgdt001.*` (hidapi), with unit tests
+  for the first two. The LIN bus type and settings (D3) are done too.*
 - **PEAK LIN connection (after the APGDT001, separate branch):** "PEAK LIN (PLIN-USB, PCAN-USB Pro / Pro FD)",
   monitor mode first: PLIN-API loaded at run time on Windows, PEAK's LIN driver on Linux, one LIN bus per channel,
   device timestamps and error flags mapped onto `CommFrame`'s LIN details (D1).
