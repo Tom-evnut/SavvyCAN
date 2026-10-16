@@ -107,6 +107,7 @@ public:
     static bool saveCARBUSAnalzyer(QString filename, const QVector<CommFrame>* frames);
     static bool savePCANFile(QString filename, const QVector<CommFrame>* frames);
     static bool saveCanalyzerBLF(QString filename, const QVector<CommFrame>* frames);
+    static bool saveWiresharkPcapng(QString filename, const QVector<CommFrame>* frames);
 
     static bool openContinuousNative();
     static bool closeContinuousNative();
