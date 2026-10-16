@@ -123,6 +123,7 @@ add_executable(TestLdf
     test_ldf.cpp
     ../dbc/ldfparser.cpp  # the classes under test
     ../dbc/ldftodbc.cpp
+    ../dbc/linschedule.cpp
     ../dbc/dbchandler.cpp
     ../dbc/dbc_classes.cpp
     ../utility.cpp
@@ -140,6 +141,22 @@ target_link_libraries(TestLdf
     Qt6::Test
     Qt6::SerialBus
     Qt6::Widgets
+)
+
+###### LIN schedule tables and runner test ######
+add_executable(TestLinSchedule
+    test_lin_schedule.cpp
+    ../dbc/linschedule.cpp  # the classes under test
+    ../linschedulerunner.cpp
+    ../dbc/ldfparser.cpp
+)
+
+target_include_directories(TestLinSchedule PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestLinSchedule
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
 )
 
 ###### PEAK LIN test ######
@@ -197,5 +214,6 @@ add_test(NAME TestCanBus COMMAND TestCanBus)
 add_test(NAME TestApgdt001Session COMMAND TestApgdt001Session)
 add_test(NAME TestLinFormat COMMAND TestLinFormat)
 add_test(NAME TestLdf COMMAND TestLdf)
+add_test(NAME TestLinSchedule COMMAND TestLinSchedule)
 add_test(NAME TestPlin COMMAND TestPlin)
 add_test(NAME TestBlf COMMAND TestBlf)

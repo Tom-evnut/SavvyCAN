@@ -186,11 +186,20 @@ inline bool toLinForSending(const CommFrame &in, CommFrame::LinChecksumModel mod
     if (!data.isEmpty())
     {
         const quint8 id = quint8(in.frameId());
-        //a LIN frame that already has a checksum (a LIN log being played back, say) keeps it
-        if (in.isLin() && in.hasLinChecksum()) out.setLinChecksum(in.linChecksumByte());
-        else out.setLinChecksum(CommFrame::linChecksum(data, id, model));
-        out.setLinChecksumModel(id == CommFrame::LIN_ID_MASTER_REQUEST || id == CommFrame::LIN_ID_SLAVE_RESPONSE
-                                ? CommFrame::LinChecksumClassic : model);
+        const CommFrame::LinChecksumModel idModel =
+            id == CommFrame::LIN_ID_MASTER_REQUEST || id == CommFrame::LIN_ID_SLAVE_RESPONSE ? CommFrame::LinChecksumClassic
+                                                                                            : model;
+        //a LIN frame that already has a checksum (a LIN log played back, a schedule's frame) keeps it, and its model
+        if (in.isLin() && in.hasLinChecksum())
+        {
+            out.setLinChecksum(in.linChecksumByte());
+            out.setLinChecksumModel(in.linChecksumModel() != CommFrame::LinChecksumUnknown ? in.linChecksumModel() : idModel);
+        }
+        else
+        {
+            out.setLinChecksum(CommFrame::linChecksum(data, id, model));
+            out.setLinChecksumModel(idModel);
+        }
     }
     return true;
 }

@@ -82,6 +82,7 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     dbc/dbchandler.cpp dbc/dbchandler.h
     dbc/ldfparser.cpp dbc/ldfparser.h
     dbc/ldftodbc.cpp dbc/ldftodbc.h
+    dbc/linschedule.cpp dbc/linschedule.h
     dbc/dbcloadsavewindow.cpp dbc/dbcloadsavewindow.h
     dbc/dbcmaineditor.cpp dbc/dbcmaineditor.h
     dbc/dbcmessageeditor.cpp dbc/dbcmessageeditor.h
@@ -96,6 +97,8 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     frameplaybackwindow.cpp frameplaybackwindow.h
     framesenderobject.cpp framesenderobject.h
     framesenderwindow.cpp framesenderwindow.h
+    linschedulerunner.cpp linschedulerunner.h
+    linschedulewindow.cpp linschedulewindow.h
     helpwindow.cpp helpwindow.h
     jsedit.cpp jsedit.h
     main.cpp

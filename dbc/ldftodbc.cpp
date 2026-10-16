@@ -148,6 +148,7 @@ void LdfToDbc::fill(const LdfDocument &doc, DBCFile *file, QStringList *warnings
     addGeneralAttribute(file, "BusType", ATTR_STRING, QString("LIN"));
     if (!doc.protocolVersion.isEmpty()) addGeneralAttribute(file, "LIN_protocol_version", ATTR_STRING, doc.protocolVersion);
     if (doc.speedBps > 0) addGeneralAttribute(file, "LIN_speed", ATTR_INT, int(doc.speedBps + 0.5));
+    file->linSchedules = LinScheduleSet::fromLdf(doc, warnings);
     //interpreted rows in the frame list take their message's colours: without these they'd be invalid (black)
     const QColor background = QApplication::palette().color(QPalette::Base);
     const QColor foreground = QApplication::palette().color(QPalette::WindowText);

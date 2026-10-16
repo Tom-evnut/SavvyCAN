@@ -304,6 +304,7 @@ DBCFile::DBCFile(const DBCFile& cpy) : QObject()
     dbc_attributes.append(cpy.dbc_attributes);
     isDirty = cpy.isDirty;
     mLin = cpy.mLin;
+    linSchedules = cpy.linSchedules;
 }
 
 void DBCFile::clearAndDelete(QList<DBC_NODE *>& list)
@@ -334,6 +335,7 @@ DBCFile& DBCFile::operator=(const DBCFile& cpy)
         dbc_attributes.clear();
         dbc_attributes.append(cpy.dbc_attributes);
         mLin = cpy.mLin;
+        linSchedules = cpy.linSchedules;
     }
     return *this;
 }
@@ -1159,6 +1161,7 @@ bool DBCFile::loadFile(QString fileName)
     qDebug() << "Starting DBC load";
     dbc_nodes.clear();
     dbc_value_tables.clear();
+    linSchedules = LinScheduleSet();
     messageHandler->removeAllMessages();
     messageHandler->setMatchingCriteria(EXACT);
     messageHandler->setFilterLabeling(false);

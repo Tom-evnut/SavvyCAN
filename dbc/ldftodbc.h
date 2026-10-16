@@ -17,7 +17,8 @@ class DBCFile;
  *     encoding gives factor, offset, unit and range, its logical values the value list; the subscriber the receiver;
  *   - file attributes: BusType "LIN" (so the file only matches LIN frames, and stays LIN when saved as a DBC),
  *     LIN_protocol_version and LIN_speed.
- * Sporadic frames carry existing frames, so they add nothing. Schedule tables aren't kept yet (phase 3, sending).
+ * Sporadic frames carry existing frames, so they add nothing. Schedule tables are kept as they are, for sending:
+ * DBCFile::linSchedules (see linschedule.h).
  */
 namespace LdfToDbc {
 
