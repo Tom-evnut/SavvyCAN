@@ -52,7 +52,7 @@ public:
      * Sending as master: 03 <n+6> 84 <n+2> <PID> <data...> <checksum> 1F 77 00, a script that sends a header and a
      * response of n data bytes (Microchip's library: the first length counts the script from 84 to 77, the second the
      * PID, data and checksum). With no data, 03 05 84 01 <PID> 1F 77 00: the same script with the PID alone, which
-     * sends just the header for a slave to answer (checked on a device). Sending a response hasn't been tried yet.
+     * sends just the header for a slave to answer. Both checked on a device (BMW HVAC flap motors at 9600 bit/s).
      */
     static QByteArray transmitReport(quint8 id, const QByteArray &data, quint8 checksum);
 
