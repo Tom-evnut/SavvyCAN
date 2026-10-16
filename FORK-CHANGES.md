@@ -25,10 +25,10 @@ confirmed and what's left.
 |---|---|---|
 | Interfaces | Microchip APGDT001 LIN Serial Analyzer (hidapi): monitor and master, confirmed on the device. PEAK LIN (PLIN-USB, PCAN-USB Pro / Pro FD, Windows, PLinApi.dll loaded at run time): monitor and master, not tried on a device | `lin-phase1-model`, `lin-peak`, `lin-send` |
 | Display | `L`, `LN` (header nobody answered) and `!` (errors) in the frame list; LIN section in Frame Details | `lin-phase1-model` |
-| Decoding | LDF files in the DBC manager (LIN 1.3 to 2.2A, J2602); DBC/LDF messages match frame type, so LIN and CAN IDs don't mix, in graphs, the signal viewer and filter labels too | `lin-phase2-ldf`, `lin-id-lookup` |
-| Sending | As LIN master from Send Frames, scripts and playback; LDF schedule tables run by Send Frames > LIN Schedule Runner | `lin-send`, `lin-schedule` |
+| Decoding | LDF files in the DBC manager (LIN 1.3 to 2.2A, J2602, BCD and ASCII signals); DBC/LDF messages match frame type, so LIN and CAN IDs don't mix, in graphs, the signal viewer and filter labels too | `lin-phase2-ldf`, `lin-id-lookup`, `lin-ldf-encodings` |
+| Sending | As LIN master from Send Frames (LIN rows with a checksum model each), scripts (`lin.sendFrame()`, `lin.sendHeader()`, `gotLINFrame`) and playback; LDF schedule tables run by Send Frames > LIN Schedule Runner, with master frames' data set signal by signal | `lin-send`, `lin-schedule`, `lin-runner-signals`, `lin-send-rows` |
 | Files | Native CSV LIN flags; LIN text logs; File > Treat Frames as LIN; BLF save (CAN, CAN FD, LIN) and LIN load; Wireshark LIN load and pcapng save (CAN, CAN FD, LIN); a warning before saving LIN frames to a format that can't mark them | `lin-phase1-model`, `lin-phase2-ldf`, `blf-save`, `lin-blf`, `lin-blf-events`, `lin-pcap`, `lin-save-warning` |
-| RE tools | RE Tools > LIN Schedule Analysis: per-ID periods and response rates, the schedule table worked out from a capture | `lin-schedule-analysis` |
+| RE tools | RE Tools > LIN Schedule Analysis: per-ID periods and response rates, the schedule table worked out from a capture. RE Tools > LIN Diagnostics: the LIN transport layer decoded, node configuration and UDS requests sent as master, NAD and data identifier scans. The sniffer, Frame Data Analysis, Range State, Single/Multi State and fuzzing keep LIN frames apart from CAN frames of the same ID | `lin-schedule-analysis`, `lin-diagnostics`, `lin-re-tools` |
 
 **Fixes found on the way** that also apply to CAN (they're in the LIN branches for now):
 
@@ -122,6 +122,15 @@ LilyGO T-2CAN-FD hardware.
 ---
 
 ## Change log
+
+### 2026-10-17: LIN diagnostics, LIN in Send Frames and the RE tools (`fork-ci-lin`)
+
+- **Sending:** LIN rows in Send Frames, a `lin` object for scripts, and signal-by-signal data in the LIN Schedule
+  Runner.
+- **Diagnostics:** the LIN transport layer, node configuration services and UDS over LIN, in RE Tools > LIN
+  Diagnostics (not in the UDS scanner, which is built on ISO-TP over CAN IDs).
+- **RE tools:** LIN frames get entries of their own where tools keep one per ID.
+- **LDF:** BCD and ASCII signals decode, as python `ldfparser` reads them.
 
 ### 2026-10-15: BLF CAN FD regression upstream (collin80/SavvyCAN#1151)
 
