@@ -341,9 +341,9 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ## 6. Next steps
 
-1. Bench, still to try: the `lin` script object, Addressed_Status_Poll (does the motor answer 0x23?), LIN Diagnostics
-   (a NAD scan), the RE tools on live traffic, and BLF/pcapng saves of a bench capture. Done: Send Frames polling,
-   and the Schedule Runner polling and positioning a motor (2026-10-17).
+1. Bench, still to try: Addressed_Status_Poll (does the motor answer 0x23?), LIN Diagnostics (a NAD scan), the RE
+   tools on live traffic, and BLF/pcapng saves of a bench capture. Done (2026-10-17): Send Frames polling, the
+   Schedule Runner polling and positioning a motor, and a script polling and moving the motors with the `lin` object.
 2. Slave mode: APGDT001 slave profiles (needs the CBUF3 layout, from a USB capture of Microchip's GUI), PEAK
    publisher frame entries; then fuzzing slave responses.
 3. Node configuration commands in schedule tables (AssignNAD and the others, now that the requests can be built).
