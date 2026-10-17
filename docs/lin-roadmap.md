@@ -256,7 +256,7 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ### Phase 3: sending
 
-**Status: master mode done** on the APGDT001 (confirmed on the device) and PEAK (untested): Send Frames LIN rows with a checksum model each, the `lin` script object, playback, and LDF schedule tables run by the LIN Schedule Runner with master frames' data set by signal. **Not done:** slave mode (APGDT001 slave profiles, PEAK publisher frame entries), node configuration commands and sporadic frames in schedules, PEAK schedules in the device, playback as a slave responder only, GVRET.
+**Status: master mode done** on the APGDT001 and PEAK (untested). On the bench (2026-10-17), the APGDT001 polled the BMW flap motors from Send Frames LIN rows, and the LIN Schedule Runner polled them and set a motor's position from the LDF's schedule tables: this phase's "done when" for master mode. Features: Send Frames LIN rows with a checksum model each, the `lin` script object, playback, and LDF schedule tables run by the LIN Schedule Runner with master frames' data set by signal. **Not done:** slave mode (APGDT001 slave profiles, PEAK publisher frame entries), node configuration commands and sporadic frames in schedules, PEAK schedules in the device, playback as a slave responder only, GVRET.
 
 - **APGDT001:** master mode (header, or header + response) and slave mode (respond to a given ID with given data and
   checksum model), using its host and slave roles. Bus mode settable from SavvyCAN.
@@ -341,8 +341,9 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 
 ## 6. Next steps
 
-1. Bench: the LIN Schedule Runner against the BMW flap motors (`test/lin-data/ldf/BMW_HVAC_Flap_Motors.ldf`), LIN
-   rows in Send Frames, and LIN Diagnostics (a NAD scan) on the bench slaves.
+1. Bench, still to try: the `lin` script object, Addressed_Status_Poll (does the motor answer 0x23?), LIN Diagnostics
+   (a NAD scan), the RE tools on live traffic, and BLF/pcapng saves of a bench capture. Done: Send Frames polling,
+   and the Schedule Runner polling and positioning a motor (2026-10-17).
 2. Slave mode: APGDT001 slave profiles (needs the CBUF3 layout, from a USB capture of Microchip's GUI), PEAK
    publisher frame entries; then fuzzing slave responses.
 3. Node configuration commands in schedule tables (AssignNAD and the others, now that the requests can be built).
