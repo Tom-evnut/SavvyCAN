@@ -65,6 +65,7 @@ private:
     QLabel *mSignalsLabel;
     QTableWidget *mSignals;
     int mSignalRow = -1; //the schedule row whose signals are shown
+    int mMarkedRow = -1; //the row with the next-slot arrow
 
     LinScheduleRunner mRunner;
     QTimer mSendTimer;

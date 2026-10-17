@@ -212,6 +212,7 @@ void LinScheduleWindow::scheduleChanged()
 void LinScheduleWindow::fillTable()
 {
     mFilling = true;
+    mMarkedRow = -1; //new rows, no arrow
     const LinSchedule &schedule = mRunner.schedule();
     mTable->setRowCount(int(schedule.entries.size()));
     for (int row = 0; row < schedule.entries.size(); row++)
@@ -390,13 +391,16 @@ void LinScheduleWindow::stopRunning()
 }
 
 //an arrow in the Slot column of the next slot to be sent (-1: none); a mark rather than a selection, so editing the data
-//isn't interrupted
+//isn't interrupted. Moved as each frame goes out (only the two rows that change), not on the status timer: a cycle as
+//long as the timer's interval would always show the same slot.
 void LinScheduleWindow::markSlot(int row)
 {
+    if (row == mMarkedRow) return;
     mFilling = true;
-    for (int r = 0; r < mTable->rowCount(); r++)
-        if (QTableWidgetItem *item = mTable->item(r, COL_SLOT))
-            item->setText(r == row ? QString("%1 %2").arg(QChar(0x25B6)).arg(r + 1) : QString::number(r + 1));
+    if (QTableWidgetItem *old = mTable->item(mMarkedRow, COL_SLOT)) old->setText(QString::number(mMarkedRow + 1));
+    if (QTableWidgetItem *item = mTable->item(row, COL_SLOT))
+        item->setText(QString("%1 %2").arg(QChar(0x25B6)).arg(row + 1));
+    mMarkedRow = row;
     mFilling = false;
 }
 
@@ -409,6 +413,7 @@ void LinScheduleWindow::sendDue()
         stopRunning();
         return;
     }
+    markSlot(mRunner.nextSlot());
     const qint64 waitUs = mRunner.nextDueUs() - nowUs();
     mSendTimer.start(int(qMax<qint64>(0, waitUs / 1000)));
 }
@@ -425,7 +430,6 @@ void LinScheduleWindow::showStatus()
     if (mRunner.isRunning())
     {
         mStatus->setText(tr("Running on bus %1: %2").arg(mRunner.bus()).arg(counts));
-        markSlot(mRunner.nextSlot());
     }
     else
         mStatus->setText(mRunner.framesSent() ? tr("Stopped: %1").arg(counts)
