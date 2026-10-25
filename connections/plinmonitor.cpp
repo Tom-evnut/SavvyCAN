@@ -34,8 +34,17 @@ CommFrame PlinMonitor::toFrame(const PlinRcvMsg &msg)
     if (!(msg.errorFlags & Plin::MSG_ERR_SLAVE_NOT_RESPONDING) && length > 0)
     {
         frame.setPayload(QByteArray(reinterpret_cast<const char *>(msg.data), length));
-        frame.setLinChecksum(msg.checksum);
-        frame.verifyLinChecksum(); //the device's checksum check is done again here, finding the ID's model too
+        if (msg.hasChecksum)
+        {
+            frame.setLinChecksum(msg.checksum);
+            frame.verifyLinChecksum(); //the device's checksum check is done again here, finding the ID's model too
+        }
+        else //PEAK's Linux driver: the model the device found, and whether the checksum was right
+        {
+            if (msg.checksumType == Plin::cstClassic) frame.setLinChecksumModel(CommFrame::LinChecksumClassic);
+            if (msg.checksumType == Plin::cstEnhanced) frame.setLinChecksumModel(CommFrame::LinChecksumEnhanced);
+            frame.setLinChecksumStatus(!(msg.errorFlags & Plin::MSG_ERR_CHECKSUM));
+        }
     }
 
     quint8 errors = 0;

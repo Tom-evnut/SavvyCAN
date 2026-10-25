@@ -30,6 +30,7 @@ SOURCES += main.cpp\
     connections/apgdt001session.cpp \
     connections/peaklin.cpp \
     connections/plindll.cpp \
+    connections/plinchardev.cpp \
     connections/plinmonitor.cpp \
     connections/canlogserver.cpp \
     connections/canserver.cpp \
@@ -131,6 +132,7 @@ HEADERS  += mainwindow.h \
     connections/peaklin.h \
     connections/plinbackend.h \
     connections/plindll.h \
+    connections/plinchardev.h \
     connections/plinmonitor.h \
     canframemodel.h \
     connections/canlogserver.h \

@@ -76,6 +76,8 @@ struct PlinRcvMsg
     quint8 checksumType = 0;
     quint8 data[8] = {};
     quint8 checksum = 0;
+    bool hasChecksum = true;      //false: PEAK's Linux driver, which gives the model (checksumType) and the
+                                  //MSG_ERR_CHECKSUM flag but not the byte
     quint32 errorFlags = 0;
     quint64 timestampUs = 0;      //falling edge of the break
     quint16 hardware = 0;

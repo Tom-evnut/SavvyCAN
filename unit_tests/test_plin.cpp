@@ -1,6 +1,9 @@
 #include <QtTest/QtTest>
 #include "plinmonitor.h"
 #include "plindll.h"
+#include "plinchardev.h"
+#include <QTemporaryDir>
+#include <cerrno>
 
 // The PEAK LIN monitor (PlinMonitor) against a fake PLIN-API backend: how a channel is set up, how received messages
 // become LIN frames, timestamps, bus events and failures. Checksums: ID 0x31 (PID 0xB1) with data 01..08 is 0xDB
@@ -80,6 +83,9 @@ private slots:
     void testDllWithoutDriver();
     void testMaster();
     void testSend();
+    void testLinuxReceive();
+    void testLinuxSend();
+    void testLinuxChannels();
 
 private:
     FakePlin fake;
@@ -378,6 +384,148 @@ void TestPlin::testSend()
     monitor.stop();
     QVERIFY(!monitor.send(frame, &error));
     QCOMPARE(error, QString("not connected"));
+}
+
+// PEAK's Linux LIN driver (PlinChardev): its frames have the 6-bit ID and no checksum byte
+void TestPlin::testLinuxReceive()
+{
+    PlinLinux::Message m;
+    m.type = Plin::mstStandard;
+    m.id = 0x31;
+    m.len = 8;
+    m.dir = Plin::dirSubscriberAutoLength;
+    m.csType = Plin::cstClassic;
+    m.tsUs = 123456789;
+    for (int i = 0; i < 8; i++) m.data[i] = quint8(i + 1);
+    PlinRcvMsg rcv = PlinLinux::toRcvMsg(m);
+    QCOMPARE(rcv.frameId, quint8(0xB1)); // the protected ID, worked out
+    QCOMPARE(rcv.length, quint8(8));
+    QVERIFY(!rcv.hasChecksum);
+    QCOMPARE(rcv.timestampUs, quint64(123456789));
+
+    CommFrame f = PlinMonitor::toFrame(rcv);
+    QCOMPARE(f.frameId(), quint32(0x31));
+    QCOMPARE(f.payload(), QByteArray::fromHex("0102030405060708"));
+    QVERIFY(!f.hasLinChecksum());
+    QVERIFY(f.linChecksumOk());
+    QCOMPARE(f.linChecksumModel(), CommFrame::LinChecksumClassic);
+    QVERIFY(!f.hasLinError());
+
+    // a wrong checksum: flagged by the driver
+    m.csType = Plin::cstEnhanced;
+    m.flags = quint16(Plin::MSG_ERR_CHECKSUM);
+    f = PlinMonitor::toFrame(PlinLinux::toRcvMsg(m));
+    QVERIFY(f.hasLinChecksumError());
+    QCOMPARE(f.linChecksumModel(), CommFrame::LinChecksumEnhanced);
+
+    // parity errors come in the flags
+    m.flags = quint16(Plin::MSG_ERR_ID_PARITY_BIT0);
+    f = PlinMonitor::toFrame(PlinLinux::toRcvMsg(m));
+    QVERIFY(f.hasLinParityError());
+
+    // a header nobody answered
+    m.flags = quint16(Plin::MSG_ERR_SLAVE_NOT_RESPONDING);
+    f = PlinMonitor::toFrame(PlinLinux::toRcvMsg(m));
+    QVERIFY(f.isLinHeaderOnly());
+}
+
+void TestPlin::testLinuxSend()
+{
+    // a frame with its own checksum goes out as the model that checksum is (the driver can't send a given byte)
+    CommFrame lin(CommFrame::LINDataFrame);
+    lin.setFrameId(0x2F);
+    lin.setPayload(QByteArray::fromHex("251EBD05"));
+    lin.setLinChecksum(CommFrame::linChecksum(lin.payload(), 0x2F, CommFrame::LinChecksumClassic));
+    PlinLinux::Message m;
+    QVERIFY(PlinLinux::toMessage(PlinMonitor::toMessage(lin), m));
+    QCOMPARE(m.id, quint8(0x2F));     // the frame ID: the driver adds the parity bits
+    QCOMPARE(m.len, quint8(4));
+    QCOMPARE(m.dir, quint8(Plin::dirPublisher));
+    QCOMPARE(m.csType, quint8(Plin::cstClassic));
+    QCOMPARE(m.data[0], quint8(0x25));
+
+    lin.setLinChecksum(CommFrame::linChecksum(lin.payload(), 0x2F, CommFrame::LinChecksumEnhanced));
+    QVERIFY(PlinLinux::toMessage(PlinMonitor::toMessage(lin), m));
+    QCOMPARE(m.csType, quint8(Plin::cstEnhanced));
+
+    lin.setLinChecksum(0x00); // wrong on purpose: can't be sent through the Linux driver
+    QString why;
+    QVERIFY(!PlinLinux::toMessage(PlinMonitor::toMessage(lin), m, &why));
+    QVERIFY(!why.isEmpty());
+
+    // a header alone
+    CommFrame header(CommFrame::LINDataFrame);
+    header.setFrameId(0x02);
+    QVERIFY(PlinLinux::toMessage(PlinMonitor::toMessage(header), m));
+    QCOMPARE(m.dir, quint8(Plin::dirSubscriberAutoLength));
+    QCOMPARE(m.id, quint8(0x02));
+
+    // the ID filter: bit n for frame ID n, lowest byte first
+    const PlinLinux::IdFilter filter = PlinLinux::idFilter(0x8000000000000101ull);
+    QCOMPARE(filter.mask[0], quint8(0x01));
+    QCOMPARE(filter.mask[1], quint8(0x01));
+    QCOMPARE(filter.mask[7], quint8(0x80));
+}
+
+void TestPlin::testLinuxChannels()
+{
+#ifdef Q_OS_LINUX
+    // a made-up sysfs: a PCAN-USB Pro with two LIN channels (plin0, plin1) and a PLIN-USB (plin2)
+    QTemporaryDir dir;
+    QDir root(dir.path());
+    QVERIFY(root.mkpath("devices/usb1/pcan-usb_pro-0/plin0"));
+    QVERIFY(root.mkpath("devices/usb1/pcan-usb_pro-0/plin1"));
+    QVERIFY(root.mkpath("devices/usb2/plin-usb-0/plin2"));
+    QVERIFY(root.mkpath("class/plin"));
+    QVERIFY(QFile::link(root.filePath("devices/usb1/pcan-usb_pro-0/plin1"), root.filePath("class/plin/plin1")));
+    QVERIFY(QFile::link(root.filePath("devices/usb1/pcan-usb_pro-0/plin0"), root.filePath("class/plin/plin0")));
+    QVERIFY(QFile::link(root.filePath("devices/usb2/plin-usb-0/plin2"), root.filePath("class/plin/plin2")));
+    QVERIFY(QFile::link(root.filePath("devices/usb1/pcan-usb_pro-0"), root.filePath("class/plin/pcan-usb_pro-0")));
+
+    const QList<PlinHardware> hw = PlinLinux::channels(root.filePath("class/plin"), root.filePath("dev"));
+    QCOMPARE(hw.size(), 3);
+    QCOMPARE(hw.at(0).handle, quint16(0));
+    QCOMPARE(hw.at(0).name, QString("pcan-usb_pro"));
+    QCOMPARE(hw.at(0).channel, 1);
+    QCOMPARE(hw.at(0).type, Plin::LIN_HW_TYPE_USB_PRO);
+    QCOMPARE(hw.at(1).channel, 2);
+    QCOMPARE(hw.at(2).name, QString("plin-usb"));
+    QCOMPARE(hw.at(2).channel, 1);
+    QCOMPARE(hw.at(2).type, Plin::LIN_HW_TYPE_PLIN_USB);
+    QCOMPARE(PlinMonitor::portName(hw.at(1)), QString("pcan-usb_pro, device 0, channel 2"));
+
+    // no sysfs: the device nodes alone
+    QVERIFY(root.mkpath("dev"));
+    for (const char *node : {"plin0", "plin3", "pcan0"}) {
+        QFile f(root.filePath(QString("dev/") + node));
+        QVERIFY(f.open(QIODevice::WriteOnly));
+    }
+    const QList<PlinHardware> nodes = PlinLinux::channels(root.filePath("nosys"), root.filePath("dev"));
+    QCOMPARE(nodes.size(), 2);
+    QCOMPARE(nodes.at(1).handle, quint16(3));
+    QCOMPARE(nodes.at(1).name, QString("plin3"));
+
+    // without the driver: not loaded, and starting fails cleanly
+    PlinChardev none(root.filePath("nosys"), root.filePath("empty"));
+    QVERIFY(!none.isLoaded());
+    QVERIFY(!none.loadError().isEmpty());
+    PlinMonitor monitor(none);
+    QString error;
+    QVERIFY(!monitor.start(QString(), 19200, &error));
+    QVERIFY(!error.isEmpty());
+
+    // a channel that's listed but can't be opened (the node is a plain file here: not a LIN device)
+    PlinChardev listed(root.filePath("class/plin"), root.filePath("dev"));
+    QVERIFY(listed.isLoaded());
+    quint8 client = 0;
+    QCOMPARE(listed.registerClient("SavvyCAN", &client), quint32(Plin::errOK));
+    QCOMPARE(listed.connectClient(client, 1), PlinChardev::ERR_ERRNO + quint32(ENOENT)); // no /dev/plin1 here
+    PlinRcvMsg msg;
+    QCOMPARE(listed.read(client, &msg), PlinChardev::ERR_NOT_CONNECTED);
+    QVERIFY(!listed.errorText(PlinChardev::ERR_ERRNO + quint32(EACCES)).isEmpty());
+#else
+    QSKIP("PEAK's Linux LIN driver is for Linux");
+#endif
 }
 
 QTEST_MAIN(TestPlin)

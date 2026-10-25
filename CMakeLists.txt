@@ -62,6 +62,7 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     connections/peaklin.cpp connections/peaklin.h
     connections/plinbackend.h
     connections/plindll.cpp connections/plindll.h
+    connections/plinchardev.cpp connections/plinchardev.h
     connections/plinmonitor.cpp connections/plinmonitor.h
     connections/canbus.cpp connections/canbus.h
     connections/canconconst.h
