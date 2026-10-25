@@ -4,9 +4,20 @@
 #include "canconmanager.h"
 #include "peaklin.h"
 #include "plindll.h"
+#include "plinchardev.h"
 
 namespace {
 constexpr int READ_INTERVAL_MS = 5;  //the driver queues frames; this only sets how often they're collected
+
+//PEAK's LIN driver: PLinApi.dll on Windows, the /dev/plinN character devices on Linux
+PlinBackend &backend()
+{
+#ifdef Q_OS_LINUX
+    return PlinChardev::instance();
+#else
+    return PlinDll::instance();
+#endif
+}
 }
 
 PeakLin::PeakLin(QString port, int busSpeed) :
@@ -27,25 +38,25 @@ PeakLin::~PeakLin()
 
 bool PeakLin::isAvailable()
 {
-    return PlinDll::instance().isLoaded();
+    return backend().isLoaded();
 }
 
 QString PeakLin::unavailableReason()
 {
-    return PlinDll::instance().loadError();
+    return backend().loadError();
 }
 
 QStringList PeakLin::availableChannels()
 {
     QStringList ports;
-    for (const PlinHardware &hw : PlinDll::instance().hardware()) ports << PlinMonitor::portName(hw);
+    for (const PlinHardware &hw : backend().hardware()) ports << PlinMonitor::portName(hw);
     return ports;
 }
 
 void PeakLin::piStarted()
 {
     //created here, in the connection's thread
-    mMonitor = new PlinMonitor(PlinDll::instance());
+    mMonitor = new PlinMonitor(backend());
     mReadTimer = new QTimer(this);
     mReadTimer->setInterval(READ_INTERVAL_MS);
     connect(mReadTimer, &QTimer::timeout, this, &PeakLin::readChannel);

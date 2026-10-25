@@ -164,6 +164,7 @@ add_executable(TestPlin
     test_plin.cpp
     ../connections/plinmonitor.cpp  # the class under test
     ../connections/plindll.cpp      # without the PEAK driver: checks it fails cleanly, and its struct layouts
+    ../connections/plinchardev.cpp  # PEAK's Linux driver: conversions and finding channels in a made-up sysfs
 )
 
 target_include_directories(TestPlin PRIVATE ${SAVVYCAN_INCLUDE_DIRS})

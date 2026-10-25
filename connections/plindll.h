@@ -6,7 +6,7 @@
 
 /*
  * PlinBackend on PEAK's PLinApi.dll, loaded at run time (it comes with PEAK's PLIN driver), so SavvyCAN builds and runs
- * without it. Windows only: on Linux PEAK's LIN driver has a different interface, not supported yet.
+ * without it. Windows only: on Linux, PlinChardev uses PEAK's Linux LIN driver instead.
  */
 class PlinDll : public PlinBackend
 {
