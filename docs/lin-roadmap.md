@@ -18,13 +18,13 @@ Phases 1 to 4 are largely done and the APGDT001 side is confirmed on hardware (B
 | Frame model | `CommFrame` LIN frames: 6-bit ID, response data, packed `linInfo` (checksum, model, received PID, errors, publisher, device time); PID parity and both checksums (`lin-phase1-model`) |
 | Bus model | Bus type CAN/LIN/FlexRay, LIN mode (monitor/master/slave) and checksum model, saved settings still load (`lin-phase1-model`) |
 | APGDT001 | Monitor and master, confirmed on the device; frames sent one frame slot apart (`lin-phase1-model`, `lin-send`) |
-| PEAK LIN | Monitor and master through PLinApi.dll loaded at run time, Windows only; not tried on a device (`lin-peak`, `lin-send`) |
+| PEAK LIN | Monitor and master: PLinApi.dll (loaded at run time) on Windows, PEAK's Linux LIN driver (/dev/plinN) on Linux; not tried on a device (`lin-peak`, `lin-send`, `lin-peak-linux`) |
 | Display | `L` / `LN` / `!` in the frame list, a LIN section in Frame Details; overwrite mode keeps header-only IDs |
 | Decoding | LDF loader into the DBC classes (LIN 1.3 to 2.2A, J2602, event-triggered frames, BCD and ASCII signals), files matched on frame type, ID-only lookups (graphs, signal viewer, filter labels, Frame Details, file comparator) LIN-aware (`lin-phase2-ldf`, `lin-id-lookup`, `lin-ldf-encodings`) |
 | Sending | As master from Send Frames (LIN rows, checksum model per row), scripts (`lin.sendFrame()`, `lin.sendHeader()`, `gotLINFrame`) and playback; LDF schedule tables run by Send Frames > LIN Schedule Runner, master frames' data set by signal (`lin-send`, `lin-schedule`, `lin-runner-signals`, `lin-send-rows`) |
 | Log files | Native CSV flags; LIN text logs; Treat Frames as LIN for flag-less captures; BLF save and load (frames, checksum and send errors, receive errors; sleep/wake-up counted); Wireshark pcap/pcapng load and pcapng save; a warning before saving LIN frames to a format that can't mark them (`lin-phase1-model`, `lin-phase2-ldf`, `lin-blf`, `lin-blf-events`, `lin-pcap`, `lin-save-warning`) |
 | RE tools | RE Tools > LIN Schedule Analysis (schedule worked out from a capture); RE Tools > LIN Diagnostics (transport layer, node configuration, UDS over LIN, NAD and data identifier scans); the sniffer, Frame Data Analysis, Range State, Single/Multi State and fuzzing keep LIN frames apart from CAN frames of the same ID (`lin-schedule-analysis`, `lin-diagnostics`, `lin-re-tools`) |
-| Not done | Slave mode, node configuration commands and sporadic frames in schedule tables, GVRET LIN, PEAK on Linux, ASC LIN |
+| Not done | Slave mode, node configuration commands and sporadic frames in schedule tables, GVRET LIN, ASC LIN |
 
 **Branches** (each merged into `fork-ci-lin`; none is upstream yet):
 
@@ -47,6 +47,7 @@ Phases 1 to 4 are largely done and the APGDT001 side is confirmed on hardware (B
 | `lin-send-rows` | `fork-ci-lin` | LIN rows in Send Frames, the `lin` script object |
 | `lin-ldf-encodings` | `lin-phase2-ldf` | LDF BCD and ASCII signals |
 | `lin-diagnostics` | `fork-ci-lin` | LIN transport layer, node configuration, UDS over LIN (RE Tools > LIN Diagnostics) |
+| `lin-peak-linux` | `fork-ci-lin` | PEAK LIN on Linux, through PEAK's Linux LIN driver |
 | `lin-re-tools` | `fork-ci-lin` | LIN frames apart from CAN frames in the sniffer, Frame Data Analysis, Range State, Single/Multi State and fuzzing |
 
 ### LIN basics the design has to carry
@@ -347,6 +348,7 @@ Each phase is one branch (or a short series) with help and `FORK-CHANGES.md` upd
 2. Slave mode: APGDT001 slave profiles (needs the CBUF3 layout, from a USB capture of Microchip's GUI), PEAK
    publisher frame entries; then fuzzing slave responses.
 3. Node configuration commands in schedule tables (AssignNAD and the others, now that the requests can be built).
-4. PEAK on a device, then PEAK on Linux; GVRET LIN with the ESP32RET firmware; ASC LIN when there's a sample.
+4. PEAK on a device: a PCAN-USB Pro on Linux (a friend's setup), and on Windows; GVRET LIN with the ESP32RET
+   firmware; ASC LIN when there's a sample.
 5. Offer the generic pieces upstream: `blf-save` first, then the pcaplite fixes, the frame model, bus type and LDF
    loader.
