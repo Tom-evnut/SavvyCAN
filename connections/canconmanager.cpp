@@ -70,6 +70,7 @@ void CANConManager::stopAllConnections()
 
 void CANConManager::add(CANConnection* pConn_p)
 {
+    QWriteLocker locker(&mConnsLock);
     mConns.append(pConn_p);
     mConnFrameCount[pConn_p] = 0;
     mConnHadFrames[pConn_p]  = false;
@@ -79,6 +80,7 @@ void CANConManager::add(CANConnection* pConn_p)
 void CANConManager::remove(CANConnection* pConn_p)
 {
     //disconnect(pConn_p, 0, this, 0);
+    QWriteLocker locker(&mConnsLock);
     mConns.removeOne(pConn_p);
     mConnFrameCount.remove(pConn_p);
     mConnHadFrames.remove(pConn_p);
@@ -86,18 +88,23 @@ void CANConManager::remove(CANConnection* pConn_p)
 
 void CANConManager::replace(int idx, CANConnection* pConn_p)
 {
-    CANConnection *original = mConns[idx];
-    mConns.replace(idx, pConn_p);
-    mConnFrameCount.remove(original);
-    mConnHadFrames.remove(original);
-    mConnFrameCount[pConn_p] = 0;
-    mConnHadFrames[pConn_p]  = false;
-    delete original; original = NULL;
+    CANConnection *original;
+    {
+        QWriteLocker locker(&mConnsLock);
+        original = mConns[idx];
+        mConns.replace(idx, pConn_p);
+        mConnFrameCount.remove(original);
+        mConnHadFrames.remove(original);
+        mConnFrameCount[pConn_p] = 0;
+        mConnHadFrames[pConn_p]  = false;
+    }
+    delete original; original = NULL; //outside the lock, in case its destructor calls back into the manager
 }
 
 //Get total number of buses currently registered with the program
 int CANConManager::getNumBuses()
 {
+    QReadLocker locker(&mConnsLock);
     int buses = 0;
     foreach(CANConnection* conn_p, mConns)
     {
@@ -237,6 +244,7 @@ void CANConManager::refreshConnection(CANConnection* pConn_p)
 */
 bool CANConManager::sendFrame(const CommFrame& pFrame)
 {
+    QReadLocker locker(&mConnsLock);
     int busBase = 0;
     CommFrame workingFrame = pFrame;
 
@@ -288,6 +296,7 @@ bool CANConManager::sendFrames(const QList<CommFrame>& pFrames)
 //the bus numbers if bus wasn't -1 so that they're local to the device
 bool CANConManager::addTargettedFrame(int pBusId, uint32_t ID, uint32_t mask, QObject *receiver)
 {
+    QReadLocker locker(&mConnsLock);
     //int tempBusVal;
     int busBase = 0;
 
@@ -307,6 +316,7 @@ bool CANConManager::addTargettedFrame(int pBusId, uint32_t ID, uint32_t mask, QO
 
 bool CANConManager::removeTargettedFrame(int pBusId, uint32_t ID, uint32_t mask, QObject *receiver)
 {
+    QReadLocker locker(&mConnsLock);
     //int tempBusVal;
     int busBase = 0;
 
@@ -326,6 +336,7 @@ bool CANConManager::removeTargettedFrame(int pBusId, uint32_t ID, uint32_t mask,
 
 bool CANConManager::removeAllTargettedFrames(QObject *receiver)
 {
+    QReadLocker locker(&mConnsLock);
     foreach (CANConnection* conn, mConns)
     {
         conn->removeAllTargettedFrames(receiver);

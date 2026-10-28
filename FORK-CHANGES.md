@@ -11,6 +11,8 @@ collin80/SavvyCAN#1141) and the other open pull requests `fork-ci` carried.
 | Playback: "Send all frames as CAN FD" (with or without BRS); the last frames of a burst are no longer dropped | `fd-playback` | merged: [#1149](https://github.com/collin80/SavvyCAN/pull/1149) |
 | ASC: CAN FD frames written as `d` lines (CANalyzer 8.x); CRTD format check no longer reads out of bounds | `fd-logs` (`ba3d4ee`) | merged: [#1150](https://github.com/collin80/SavvyCAN/pull/1150) |
 | GitHub repos: load and save log files and DBC files in GitHub repos (File menu, DBC File Manager), signed in with the SavvyCAN GitHub App or a token | `github-phase1-load`, `github-phase2-save` | fork only for now |
+| OBD-II Poller after the first car test: polls from its own thread (no more stalls behind a busy GUI); supported-PID answers in the generated DBC | `obd2-car-fixes` | fork only for now |
+| Connections can't be removed while another thread sends on them (lock on the connection list) | `obd2-car-fixes` | not offered yet |
 | OBD-II answers graphed: Make DBC... writes and attaches a DBC for them, Graph Polled PIDs, a warning when adapters' clocks differ | `obd2-phase4-dbc` | fork only for now |
 | Graphs of multiplexed signals no longer take values from frames of other multiplexor values while capturing; big-endian signals in a frame's last bytes decode in graphs | `obd2-phase4-dbc` | not offered yet |
 | OBD-II Poller window (Send Frames > OBD-II Poller): discover ECUs, tick PIDs to poll, live values, VIN, poll sets | `obd2-phase3-window` | fork only for now |
@@ -100,6 +102,7 @@ Everything here is in upstream `QT6WIP` except the rows marked "fork only".
 | `github-shared-repos` | `fork-ci` | One GitHub repo list for logs and DBC files | - |
 | `github-polish` | `fork-ci` | SavvyCAN GitHub App built in, Choose Repos..., EV-CANlogs preloaded | - |
 | `log-notes` | `fork-ci` | Log notes: format, native CSV block, `.notes.md` file | - |
+| `obd2-car-fixes` | `fork-ci` | OBD-II poller in its own thread, targetted frames, connection list lock; bitmap PIDs in the DBC | - |
 | `obd2-phase4-dbc` | `fork-ci` | OBD-II DBC, Graph Polled PIDs, clock warning; graph and DBC fixes; `TestObd2Dbc` | - |
 | `obd2-phase3-window` | `fork-ci` | OBD-II Poller window, help page, `TestObd2Window` | - |
 | `obd2-phase2-poller` | `fork-ci` | OBD-II poll engine `Obd2Poller`, `TestObd2Poller` | - |
@@ -126,6 +129,10 @@ collin80/SavvyCAN#1086, collin80/SavvyCAN#1087, collin80/SavvyCAN#1093, collin80
 collin80/SavvyCAN#1095, collin80/SavvyCAN#1099 and collin80/SavvyCAN#1101.
 
 ## Known issues
+
+- **OBD-II Poller not yet tried on a car since `obd2-car-fixes`:** the thread change is tested with fake
+  connections only; ThreadSanitizer can't judge it (Qt isn't built for it), and its reports were all at Qt's queued
+  call hand-offs.
 
 - **DBC files leak when unloaded** (found by `TestObd2Dbc` under LeakSanitizer; upstream too, not fixed yet):
   `DBCFile`'s destructor frees only its nodes, never its message handler, messages or signals, and
@@ -156,6 +163,32 @@ LilyGO T-2CAN-FD hardware.
 ---
 
 ## Change log
+
+### 2026-10-28: OBD-II Poller fixes from the first car test (`obd2-car-fixes`)
+
+From a test on an Astra J (2011) with a T-2CAN-FD: every request was answered in about 24 ms, but the poller often
+waited 100 ms to 900 ms before the next one, so it managed about 8 requests/s instead of about 18.
+
+- **The poller runs in a thread of its own.** Received frames reach the GUI thread in 20 ms batches and wait there
+  while the GUI is busy (about 2,200 frames/s were coming in), and the poller ran there too. Now its answers come
+  straight from the connection's thread as targetted frames (the path scripts already use) for a filter on the reply
+  IDs, and it sends from its own thread. The window talks to it through queued calls and a copy of its state.
+- **Connection list lock:** `CANConManager` now takes a read/write lock around its list of connections: adding,
+  removing and replacing take the write lock, sending, the bus count and targetted frame filters the read lock. So
+  a connection can't be removed and deleted while another thread is sending on it. `replace` deletes the old
+  connection after letting go of the lock.
+- **Timers move with their objects:** the poller's and the ISO-TP handler's timers are now their children, so they
+  run in the thread the object is moved to.
+- **Discovery follows a late bitmap answer:** in the car test the 0x20 bitmap said 0x40 was supported too, but
+  discovery had already finished: the answer came on the bus in 23 ms, the poller saw it only after its 50 ms wait
+  ran out. Now a bitmap answer from an ECU that took part in discovery is followed whenever it comes (each bitmap
+  asked for once), and discovery goes on.
+- **Supported-PID answers in the generated DBC:** PIDs 0x00, 0x20 ... 0xE0 get a raw 32-bit signal each
+  (`PID_00_SupportedPids` ...). Before, strict tools such as cantools refused to decode a log containing a discovery.
+- **Tests:** `TestObd2Poller` runs a discovery with the poller in a worker thread, answers posted to it by name as
+  a connection does, and checks the filter hook and the bus of targetted frames, and replays the car's discovery
+  answers (also late); `TestObd2Window` polls through a window whose poller is in its own thread; `TestObd2Dbc`
+  decodes a bitmap answer. The new DBC decodes all 1,371 answers of the car log in cantools (strict).
 
 ### 2026-10-26: marker presets (`log-notes-presets`)
 

@@ -13,7 +13,8 @@
  * One message per ECU reply ID. A single-frame reply is: byte 0 the ISO-TP length, byte 1 the service (0x41),
  * byte 2 the PID, then the PID's data bytes. So the DBC multiplexes three levels deep:
  *   Service (M, byte 1) -> PID (m65M, byte 2) -> PID_0C_EngineSpeed (m12) and so on,
- * linked with SG_MUL_VAL_ lines. Every value is big-endian (Motorola) as J1979 sends it.
+ * linked with SG_MUL_VAL_ lines. Every value is big-endian (Motorola) as J1979 sends it. The supported-PID answers
+ * get a raw 32-bit signal each, so tools that refuse unknown multiplexor values (cantools) decode a whole log.
  */
 namespace OBD2
 {
@@ -22,6 +23,8 @@ namespace OBD2
     //Motorola start bit (the DBC number of the field's most significant bit) in the reply frame
     int dbcStartBit(const Field &field);
     QString dbcMessageName(quint32 ecuReplyId);
+    //"PID_00_SupportedPids": the raw 32-bit bitmap a supported-PID answer (0x00, 0x20 ... 0xE0) carries
+    QString dbcBitmapSignalName(quint8 pid);
     //The whole DBC file, with a message for each ECU (29-bit IDs are marked extended)
     QString makeDbc(const QList<quint32> &ecuReplyIds);
 }

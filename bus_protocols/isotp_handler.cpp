@@ -22,6 +22,7 @@ ISOTP_HANDLER::ISOTP_HANDLER(const QVector<CommFrame> &modelFrames,
     lastSenderID = 0;
     padByte = (char)0xAA;
 
+    frameTimer.setParent(this); //so it moves with the handler to another thread
     connect(&frameTimer, &QTimer::timeout, this, &ISOTP_HANDLER::frameTimerTick);
     updateIsoTpCanFrameInfo();
 }

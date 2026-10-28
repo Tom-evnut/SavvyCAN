@@ -15,7 +15,8 @@ timeline (Tom-evnut fork). Written against `fork-ci` (2026-10-25). Each phase br
 | 2: poll engine | Done (`obd2-phase2-poller`): `Obd2Poller` with discovery, polling, timeouts, response pending, rate limit, VIN; `TestObd2Poller` |
 | 3: OBD-II window | Done (`obd2-phase3-window`): Send Frames > OBD-II Poller, poll sets (`.obd`), VIN, help page `help/obd2.md`; `TestObd2Window` |
 | 4: generated OBD DBC, graphing and comparison | Done (`obd2-phase4-dbc`): Make DBC..., Graph Polled PIDs, clock warning; `TestObd2Dbc` (also checked with cantools); two graph/DBC bugs fixed |
-| 5: scripting, Mode 22 DID lists, docs | Next |
+| Car test 1 (Astra J 2011, 2026-10-28) | Polling worked (1,371 of 1,371 answered, ECU in 24 ms); poller stalls behind a busy GUI and missing bitmap PIDs in the DBC fixed in `obd2-car-fixes`; to try on the car again |
+| 5: scripting, Mode 22 DID lists, docs | On hold until the car test is repeated |
 
 ---
 
@@ -212,6 +213,24 @@ ignored multiplexing, so a multiplexed signal took values from every frame with 
   4 can be checked without a car.
 
 ---
+
+## 6a. Car test 1 (Astra J 2011, 2026-10-28)
+
+One LilyGO T-2CAN-FD, the OBD port on bus 1 (its CAN also carries the car's own traffic, about 2,200 frames/s),
+idling in Drive with throttle stabs. The write-up and the log stay local (`test/obd2-data/`, git-ignored: the log
+holds the VIN).
+
+- **Worked:** one ECU (0x7E8, 11-bit); 6 PIDs polled about 228 times each; 1,371 of 1,371 requests answered, one
+  timeout; answers in 24 ms (median). The DBC from Make DBC... decodes every Mode 01 answer.
+- **Matched against the car's own frames:** engine speed is in 0x0C9 (bytes 1-2 / 4; 0.75 rpm median difference),
+  coolant in 0x4C1 (byte 2 - 40, identical); 0x3D1 byte 1 follows the throttle. An OBD answer is effectively current
+  next to the broadcast value (best match 2.5 ms earlier).
+- **Fixed after it (`obd2-car-fixes`):** the poller waited 100-900 ms in 13 % of gaps, held up behind the GUI thread
+  (about 8 requests/s instead of about 18); it now runs in its own thread. The same delay made discovery miss the
+  0x40 bitmap (its answer was seen after the wait ran out); late bitmap answers are now followed. The DBC now has
+  the supported-PID answers.
+- **For the adapter's firmware (handed over):** with CAN FD on, classic frames arrive flagged CAN FD (GVRET opcode
+  20); now and then a garbage frame appears on the unused bus.
 
 ## 7. Risks
 

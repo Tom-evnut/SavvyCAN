@@ -39,6 +39,8 @@ private slots:
     void testPolledSignals();
     void testGraphPolledPids();
     void testClockWarning();
+    void testPollerInItsOwnThread();
+    void testDiscoveryWithTheCarsAnswers();
     void testScreenshot();
 
 signals:
@@ -481,6 +483,55 @@ void TestObd2Window::testClockWarning()
     separateClocks = false;
     window->show(); //checked again when the window opens
     QVERIFY(window->warningText().isEmpty());
+}
+
+// As SavvyCAN runs it: the poller in a worker thread, answers posted from another thread
+void TestObd2Window::testPollerInItsOwnThread()
+{
+    qRegisterMetaType<CommFrame>("CommFrame");
+    QMutex sentMutex;
+    QList<CommFrame> sent;
+    auto *handler = new ISOTP_HANDLER(dummyFrames,
+        [&](const CommFrame &frame) { QMutexLocker l(&sentMutex); sent.append(frame); },
+        []() -> int { return 2; },
+        ISOTP_HANDLER::PendingConnection<ISOTP_HANDLER>());
+    auto *poller = new Obd2Poller(handler);
+    handler->setParent(poller);
+    auto threaded = std::make_unique<Obd2Window>(poller, 2);
+    threaded->runPollerInThread();
+    QVERIFY(threaded->pollerInThread());
+    QVERIFY(poller->thread() != QThread::currentThread());
+
+    threaded->setPolled(0x7E8, 0x0C, true);
+    threaded->startPolling();
+    QTRY_VERIFY(threaded->pollerState().running);
+    auto lastSent = [&]() { QMutexLocker l(&sentMutex); return sent.isEmpty() ? QByteArray() : sent.last().payload(); };
+    QTRY_COMPARE(lastSent(), QByteArray::fromHex("02010CAAAAAAAAAA"));
+
+    CommFrame reply;
+    reply.setFrameId(0x7E8);
+    reply.setPayload(QByteArray::fromHex("04410C1AF8555555"));
+    QVERIFY(QMetaObject::invokeMethod(poller, "gotTargettedFrame", Qt::QueuedConnection, Q_ARG(CommFrame, reply)));
+    int row = threaded->rowFor(0x7E8, 0x0C);
+    QTRY_COMPARE(threaded->table()->item(row, Obd2Window::COL_VALUE)->text(), QString("1726 rpm"));
+    QTRY_VERIFY(threaded->pollerState().stats.replies >= 1);
+    QTRY_VERIFY(threaded->statusText().contains("Answers: "));
+
+    threaded->stopPolling();
+    QTRY_VERIFY(!threaded->pollerState().running);
+    threaded.reset(); //deletes the poller in its thread and joins the thread
+}
+
+// The Astra J's answers through the window: after 0x20, discovery has to go on to 0x40
+void TestObd2Window::testDiscoveryWithTheCarsAnswers()
+{
+    window->discover();
+    receive(0x7E8, "064100BE3FB813AA");
+    advance(50);
+    QCOMPARE(sentFrames.back().payload().left(3), QByteArray::fromHex("020120"));
+    receive(0x7E8, "0641208007A011AA");
+    for (int i = 0; i < 30 && sentFrames.size() < 3; i++) advance(2);
+    QCOMPARE(sentFrames.back().payload().left(3), QByteArray::fromHex("020140"));
 }
 
 //with SAVVYCAN_SCREENSHOTS set to a folder, the window is saved there as a picture

@@ -19,6 +19,7 @@
 #include <QSettings>
 #include <QSpinBox>
 #include <QTableWidget>
+#include <QThread>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <cmath>
@@ -65,10 +66,15 @@ Obd2Window::Obd2Window(Obd2Poller *poller, int numBuses, QWidget *parent)
     connect(poller, &Obd2Poller::pidUnsupported, this, &Obd2Window::pidUnsupported);
     connect(poller, &Obd2Poller::requestTimedOut, this, &Obd2Window::requestTimedOut);
     connect(poller, &Obd2Poller::vehicleInfoRead, this, &Obd2Window::vehicleInfoRead);
-    connect(poller, &Obd2Poller::statsChanged, this, &Obd2Window::statsChanged);
+    connect(poller, &Obd2Poller::stateChanged, this, &Obd2Window::stateUpdated);
 
-    poller->setBus(cbBus->currentIndex() < 0 ? 0 : cbBus->currentIndex());
-    poller->setMaxRequestRate(spinRate->value());
+    state = poller->state();
+    int bus = currentBus();
+    int rate = spinRate->value();
+    call([p = poller, bus, rate]() {
+        p->setBus(bus);
+        p->setMaxRequestRate(rate);
+    });
 
     rebuildTable();
     updateControls();
@@ -78,7 +84,43 @@ Obd2Window::Obd2Window(Obd2Poller *poller, int numBuses, QWidget *parent)
 
 Obd2Window::~Obd2Window()
 {
-    poller->stop();
+    if (workerThread)
+    {
+        //the poller goes in its own thread (its filter hook and timers belong to it), then the thread
+        Obd2Poller *p = poller;
+        QMetaObject::invokeMethod(p, [p]() { delete p; }, Qt::BlockingQueuedConnection);
+        workerThread->quit();
+        workerThread->wait();
+    }
+    else poller->stop();
+}
+
+void Obd2Window::runPollerInThread()
+{
+    if (workerThread) return;
+    workerThread = new QThread(this);
+    workerThread->setObjectName("OBD-II poller");
+    poller->setParent(nullptr); //an object with a parent can't change threads
+    poller->moveToThread(workerThread);
+    workerThread->start();
+}
+
+void Obd2Window::stateUpdated(const Obd2Poller::State &newState)
+{
+    state = newState;
+    updateControls();
+    statsChanged();
+}
+
+Obd2Poller::Addressing Obd2Window::addressingMode() const
+{
+    return cbAddressing->currentIndex() == 1 ? Obd2Poller::Addressing::Extended29Bit
+                                             : Obd2Poller::Addressing::Standard11Bit;
+}
+
+int Obd2Window::currentBus() const
+{
+    return qMax(0, cbBus->currentIndex());
 }
 
 void Obd2Window::buildLayout(int numBuses)
@@ -228,11 +270,11 @@ void Obd2Window::setClockCheck(std::function<bool()> check)
 QList<quint32> Obd2Window::dbcEcus() const
 {
     QList<quint32> ecus;
-    for (const Obd2Poller::Ecu &ecu : poller->ecus()) ecus.append(ecu.replyId);
+    for (const Obd2Poller::Ecu &ecu : state.ecus) ecus.append(ecu.replyId);
     if (ecus.isEmpty()) //the usual reply IDs: 0x7E8-0x7EF, or source addresses 0x10-0x17
     {
         for (quint32 i = 0; i < 8; i++)
-            ecus.append(poller->addressing() == Obd2Poller::Addressing::Standard11Bit ? 0x7E8 + i : 0x18DAF110 + i);
+            ecus.append(addressingMode() == Obd2Poller::Addressing::Standard11Bit ? 0x7E8 + i : 0x18DAF110 + i);
     }
     std::sort(ecus.begin(), ecus.end());
     return ecus;
@@ -249,8 +291,8 @@ bool Obd2Window::makeDbc(const QString &path, QString *error)
     }
     file.write(OBD2::makeDbc(ecus).toUtf8());
     file.close();
-    if (dbcLoader && !dbcLoader(path, poller->bus(), ecus, error)) return false;
-    lblStatus->setText(tr("DBC written to %1 and attached to bus %2").arg(path).arg(poller->bus()));
+    if (dbcLoader && !dbcLoader(path, currentBus(), ecus, error)) return false;
+    lblStatus->setText(tr("DBC written to %1 and attached to bus %2").arg(path).arg(currentBus()));
     return true;
 }
 
@@ -283,7 +325,7 @@ void Obd2Window::graphPolledPids()
         return;
     }
     QString error;
-    if (!graphOpener || !graphOpener(poller->bus(), sigs, &error))
+    if (!graphOpener || !graphOpener(currentBus(), sigs, &error))
         lblStatus->setText(error.isEmpty() ? tr("Graphs can't be opened here.") : error);
 }
 
@@ -291,8 +333,8 @@ void Obd2Window::makeDbcDialog()
 {
     QSettings settings;
     QString folder = settings.value("OBD2/LastDbcFolder").toString();
-    QString suggested = QString("OBD2_bus%1%2.dbc").arg(poller->bus())
-                            .arg(poller->addressing() == Obd2Poller::Addressing::Extended29Bit ? "_29bit" : "");
+    QString suggested = QString("OBD2_bus%1%2.dbc").arg(currentBus())
+                            .arg(addressingMode() == Obd2Poller::Addressing::Extended29Bit ? "_29bit" : "");
     QString filename = QFileDialog::getSaveFileName(this, tr("Make OBD-II DBC File"),
                                                     folder.isEmpty() ? suggested : folder + "/" + suggested,
                                                     tr("DBC files (*.dbc)"));
@@ -305,7 +347,9 @@ void Obd2Window::makeDbcDialog()
 
 QString Obd2Window::ecuText(quint32 ecuReplyId) const
 {
-    if (ecuReplyId == 0) return tr("All (%1)").arg(hex(poller->functionalRequestId(), 3));
+    if (ecuReplyId == 0)
+        return tr("All (%1)").arg(addressingMode() == Obd2Poller::Addressing::Standard11Bit ? QString("0x7DF")
+                                                                                            : QString("0x18DB33F1"));
     return hex(ecuReplyId, ecuReplyId > 0x7FF ? 8 : 3);
 }
 
@@ -378,7 +422,7 @@ void Obd2Window::rebuildTable()
         addRow(ecu, pid, polled.contains({ecu, pid}), polled.value({ecu, pid}, 0));
     };
 
-    const QList<Obd2Poller::Ecu> &ecus = poller->ecus();
+    const QList<Obd2Poller::Ecu> &ecus = state.ecus;
     if (ecus.isEmpty())
     {
         for (const OBD2::PidInfo &info : OBD2::mode01Pids())
@@ -431,7 +475,7 @@ void Obd2Window::applyPollList()
         int interval = qMax(0, pidTable->item(row, COL_INTERVAL)->text().toInt());
         items.append({poll->data(ROLE_ECU).toUInt(), static_cast<quint8>(poll->data(ROLE_PID).toUInt()), interval});
     }
-    poller->setPollList(items);
+    call([p = poller, items]() { p->setPollList(items); });
 }
 
 void Obd2Window::tableChanged()
@@ -442,8 +486,8 @@ void Obd2Window::tableChanged()
 
 void Obd2Window::updateControls()
 {
-    bool running = poller->isRunning();
-    bool discovering = poller->isDiscovering();
+    bool running = state.running;
+    bool discovering = state.discovering;
     cbBus->setEnabled(!running && !discovering);
     cbAddressing->setEnabled(!running && !discovering);
     btnDiscover->setEnabled(!running && !discovering);
@@ -486,7 +530,9 @@ QString Obd2Window::warningText() const
 
 void Obd2Window::busChanged()
 {
-    poller->setBus(qMax(0, cbBus->currentIndex()));
+    int bus = currentBus();
+    call([p = poller, bus]() { p->setBus(bus); });
+    state.ecus.clear(); //the poller forgets them too
     cbVinEcu->clear();
     rebuildTable();
     updateWarning();
@@ -494,23 +540,25 @@ void Obd2Window::busChanged()
 
 void Obd2Window::addressingChanged()
 {
-    poller->setAddressing(cbAddressing->currentIndex() == 1 ? Obd2Poller::Addressing::Extended29Bit
-                                                            : Obd2Poller::Addressing::Standard11Bit);
+    Obd2Poller::Addressing mode = addressingMode();
+    call([p = poller, mode]() { p->setAddressing(mode); });
+    state.ecus.clear();
     cbVinEcu->clear();
     rebuildTable();
 }
 
 void Obd2Window::rateChanged(int perSecond)
 {
-    poller->setMaxRequestRate(perSecond);
+    call([p = poller, perSecond]() { p->setMaxRequestRate(perSecond); });
 }
 
 void Obd2Window::discover()
 {
     cbVinEcu->clear();
-    poller->discover();
+    state.discovering = true; //until the poller says otherwise
     updateControls();
-    if (poller->isDiscovering()) lblStatus->setText(tr("Discovering ECUs..."));
+    lblStatus->setText(tr("Discovering ECUs..."));
+    call([p = poller]() { p->discover(); });
 }
 
 void Obd2Window::ecuFound(quint32 ecuReplyId)
@@ -522,12 +570,12 @@ void Obd2Window::discoveryFinished()
 {
     rebuildTable();
     updateControls();
-    int count = poller->ecus().size();
+    int count = state.ecus.size();
     if (count == 0) lblStatus->setText(tr("No ECU answered. Check the bus, its speed and the addressing."));
     else
     {
         QStringList found;
-        for (const Obd2Poller::Ecu &ecu : poller->ecus())
+        for (const Obd2Poller::Ecu &ecu : state.ecus)
             found.append(tr("%1 (%2 PIDs)").arg(ecuText(ecu.replyId)).arg(ecu.supportedPids.size()));
         lblStatus->setText(tr("Found %n ECU(s): ", "", count) + found.join(", "));
     }
@@ -546,13 +594,13 @@ void Obd2Window::startPolling()
         lblStatus->setText(tr("Tick the PIDs to poll first."));
         return;
     }
-    poller->start();
+    call([p = poller]() { p->start(); });
     updateControls();
 }
 
 void Obd2Window::stopPolling()
 {
-    poller->stop();
+    call([p = poller]() { p->stop(); });
     updateControls();
 }
 
@@ -560,8 +608,9 @@ void Obd2Window::readVin()
 {
     quint32 ecu = cbVinEcu->currentData().toUInt();
     if (ecu == 0) //nothing discovered yet: the engine ECU's usual address
-        ecu = (poller->addressing() == Obd2Poller::Addressing::Standard11Bit) ? 0x7E8 : 0x18DAF110;
-    if (poller->readVin(ecu)) lblVin->setText(tr("Reading the VIN from %1...").arg(ecuText(ecu)));
+        ecu = (addressingMode() == Obd2Poller::Addressing::Standard11Bit) ? 0x7E8 : 0x18DAF110;
+    lblVin->setText(tr("Reading the VIN from %1...").arg(ecuText(ecu)));
+    call([p = poller, ecu]() { p->readVin(ecu); });
 }
 
 void Obd2Window::pidUpdated(quint32 ecuReplyId, quint8 pid, const QByteArray &data, const QList<OBD2::Value> &values)
@@ -613,8 +662,8 @@ void Obd2Window::vehicleInfoRead(quint32 ecuReplyId, quint8 pid, const QString &
 
 void Obd2Window::statsChanged()
 {
-    if (poller->isDiscovering()) return;
-    const Obd2Poller::Stats &s = poller->stats();
+    if (state.discovering) return;
+    const Obd2Poller::Stats &s = state.stats;
     lblStatus->setText(tr("Requests: %1   Answers: %2   Timeouts: %3   Refused: %4   Answers in the last second: %5")
                            .arg(s.requests).arg(s.replies).arg(s.timeouts).arg(s.negativeReplies)
                            .arg(s.repliesLastSecond));

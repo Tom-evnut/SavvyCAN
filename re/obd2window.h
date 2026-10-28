@@ -22,6 +22,10 @@ class QTableWidget;
  *
  * The window drives an Obd2Poller it's given (and takes ownership of). What it needs from the rest of SavvyCAN
  * comes in through setters, so the unit tests can build it without a MainWindow.
+ *
+ * The window only talks to the poller through call() and the poller's signals, keeping a copy of its state, so
+ * runPollerInThread() can move the poller to a thread of its own (SavvyCAN does; the tests mostly don't, and then
+ * every call is direct).
  */
 class Obd2Window : public QDialog
 {
@@ -43,6 +47,11 @@ public:
 
     Obd2Window(Obd2Poller *poller, int numBuses, QWidget *parent = nullptr);
     ~Obd2Window();
+
+    //Moves the poller (and the objects it owns, such as its ISO-TP handler) to a worker thread
+    void runPollerInThread();
+    bool pollerInThread() const { return workerThread != nullptr; }
+    const Obd2Poller::State &pollerState() const { return state; }
 
     //(ECU reply ID, DBC signal name) of one value to graph
     using GraphSignal = QPair<quint32, QString>;
@@ -110,6 +119,7 @@ private slots:
     void savePollSetDialog();
     void loadPollSetDialog();
     void makeDbcDialog();
+    void stateUpdated(const Obd2Poller::State &newState);
 
 private:
     struct RowKey
@@ -127,8 +137,14 @@ private:
     void updateControls();
     void updateWarning();
     QString ecuText(quint32 ecuReplyId) const;
+    Obd2Poller::Addressing addressingMode() const;
+    int currentBus() const;
+    //Runs f on the poller's thread: at once when that's this thread, else queued
+    template <typename F> void call(F f) { QMetaObject::invokeMethod(poller, f, Qt::AutoConnection); }
 
     Obd2Poller *poller;
+    QThread *workerThread = nullptr;
+    Obd2Poller::State state;    //the poller's, as last reported
     std::function<bool(int)> listenOnlyCheck;
     std::function<void()> helpCallback;
     DbcLoader dbcLoader;
