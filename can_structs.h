@@ -181,9 +181,11 @@ public:
     }
 
     /*
-     * FlexRay frames: the frame ID is the 11-bit slot ID, byte 0 of the payload is the cycle count (0-63) and the
-     * FlexRay payload (0-254 bytes) follows. Keeping the cycle count in the payload lets DBC files multiplex on it,
-     * as pico-flexray's and openpilot cabana's FlexRay DBC files do.
+     * FlexRay frames: the frame ID is the 11-bit slot ID, the cycle count (0-63) is a first-class field
+     * (setFlexRayCycle()/flexRayCycle()), and the payload is the true FlexRay payload (0-254 bytes) with the
+     * cycle count NOT mixed in. For DBC decoding, flexRayDecodePayload() rebuilds the [cycle][payload] byte
+     * layout that pico-flexray's and openpilot cabana's FlexRay DBC files multiplex on, so those DBCs keep
+     * decoding while the stored payload stays clean for the frame list and the reverse-engineering tools.
      */
     static constexpr int FLEXRAY_MAX_PAYLOAD = 254;
     constexpr bool isFlexRay() const noexcept { return format == 0x2; }
@@ -196,7 +198,10 @@ public:
     static constexpr quint8 FLEXRAY_IND_NULL_FRAME = 0x04; //null frame indicator: set = data valid
     void setFlexRayHeader(quint8 indicators, quint16 headerCrc, quint32 frameCrc)
     {
-        flexRayInfo = (flexRayInfo & (FR_CRC_CHECKED | FR_HEADER_CRC_OK | FR_FRAME_CRC_OK | FR_DEVICE_TIME))
+        //keep the bits this call doesn't own: the CRC/device-time flags and the cycle count
+        const quint64 keep = FR_CRC_CHECKED | FR_HEADER_CRC_OK | FR_FRAME_CRC_OK | FR_DEVICE_TIME
+                             | FR_HAS_CYCLE | (quint64(0x3F) << FR_CYCLE_SHIFT);
+        flexRayInfo = (flexRayInfo & keep)
                       | FR_HAS_HEADER | (quint64(indicators & 0x1F) << FR_IND_SHIFT)
                       | (quint64(headerCrc & 0x7FF) << FR_HCRC_SHIFT) | (quint64(frameCrc & 0xFFFFFF) << FR_FCRC_SHIFT);
     }
@@ -215,6 +220,12 @@ public:
     void setFlexRayDeviceTimestamp(bool fromDevice)
     {
         flexRayInfo = fromDevice ? (flexRayInfo | FR_DEVICE_TIME) : (flexRayInfo & ~FR_DEVICE_TIME);
+    }
+    //FlexRay communication cycle (0-63), kept as a first-class field rather than in the payload
+    void setFlexRayCycle(quint8 cycle)
+    {
+        flexRayInfo = (flexRayInfo & ~(quint64(0x3F) << FR_CYCLE_SHIFT)) | FR_HAS_CYCLE
+                      | (quint64(cycle & 0x3F) << FR_CYCLE_SHIFT);
     }
     void clearFlexRayInfo() { flexRayInfo = 0; }
 
@@ -235,6 +246,19 @@ public:
         return flexRayCrcChecked() && !(flexRayHeaderCrcOk() && flexRayFrameCrcOk());
     }
     constexpr bool hasFlexRayDeviceTimestamp() const noexcept { return flexRayInfo & FR_DEVICE_TIME; }
+    constexpr bool hasFlexRayCycle() const noexcept { return flexRayInfo & FR_HAS_CYCLE; }
+    constexpr quint8 flexRayCycle() const noexcept { return quint8((flexRayInfo >> FR_CYCLE_SHIFT) & 0x3F); }
+    //payload as the FlexRay DBC files expect it: the cycle count as byte 0, then the FlexRay payload. Lets the
+    //pico-flexray / cabana DBCs multiplex on the (now first-class) cycle without the stored payload carrying it.
+    QByteArray flexRayDecodePayload() const
+    {
+        if (format != 0x2) return dataBytes;
+        QByteArray b;
+        b.reserve(1 + dataBytes.size());
+        b.append(static_cast<char>(flexRayCycle()));
+        b.append(dataBytes);
+        return b;
+    }
 
     constexpr QCanBusFrame::FrameType toQCanBusFrameType() noexcept
     {
@@ -388,8 +412,8 @@ public:
 
         // maximum permitted payload size in CAN or CAN FD
         const qsizetype length = dataBytes.size();
-        if (format == FLEXRAYDataFrame) // 11-bit slot ID, cycle count byte + up to 254 bytes
-            return !isExtendedFrame && msgId <= 0x7FFU && length >= 1 && length <= 1 + FLEXRAY_MAX_PAYLOAD;
+        if (format == FLEXRAYDataFrame) // 11-bit slot ID; cycle count is a field, payload is up to 254 bytes
+            return !isExtendedFrame && msgId <= 0x7FFU && length <= FLEXRAY_MAX_PAYLOAD;
 
         if (isFlexibleDataRate) {
             if (format == RemoteRequestFrame)
@@ -427,9 +451,11 @@ private:
     static constexpr quint64 FR_HEADER_CRC_OK = 1ull << 2;
     static constexpr quint64 FR_FRAME_CRC_OK = 1ull << 3;
     static constexpr quint64 FR_DEVICE_TIME = 1ull << 4;
-    static constexpr int FR_IND_SHIFT = 5;
-    static constexpr int FR_HCRC_SHIFT = 10;
-    static constexpr int FR_FCRC_SHIFT = 21;
+    static constexpr int FR_IND_SHIFT = 5;    //indicators, 5 bits (5-9)
+    static constexpr int FR_HCRC_SHIFT = 10;  //header CRC, 11 bits (10-20)
+    static constexpr int FR_FCRC_SHIFT = 21;  //frame CRC, 24 bits (21-44)
+    static constexpr int FR_CYCLE_SHIFT = 45; //cycle count, 6 bits (45-50)
+    static constexpr quint64 FR_HAS_CYCLE = 1ull << 51;
     quint64 flexRayInfo = 0;
 };
 

@@ -354,15 +354,14 @@ QByteArray PicoFlexRay::overridePayloadFor(const CommFrame &frame, QString *erro
 
     if (!frame.isFlexRay())
         return fail("only FlexRay frames can be sent to a pico-flexray device");
-    const QByteArray payload = frame.payload();
-    if (payload.size() < 2)
-        return fail("a FlexRay frame to send needs a cycle-count byte plus at least one payload byte");
+    const QByteArray content = frame.payload();            //the slot payload to splice in
+    if (content.isEmpty())
+        return fail("a FlexRay frame to send needs at least one payload byte");
     const quint32 id = frame.frameId();
     if (id > 0x7FFu)
         return fail(QString("FlexRay slot ID 0x%1 is out of range (0-0x7FF)").arg(id, 0, 16));
 
-    const quint8 base = static_cast<quint8>(payload.at(0)); //cycle-count byte -> rule cycle_base
-    const QByteArray content = payload.mid(1);              //the slot payload to splice in
+    const quint8 base = frame.flexRayCycle(); //first-class cycle count -> rule cycle_base
     const quint8 crc = e2eCrc8(reinterpret_cast<const unsigned char *>(content.constData()), content.size(), 0xf1);
 
     //slice submitted to the firmware: [E2E CRC-8][slot payload]; the firmware checks the CRC, then carves the
@@ -413,7 +412,7 @@ bool PicoFlexRay::piSendFrame(const CommFrame &frame)
     //match an injection rule (src/flexray_injector_rules.h), so a successful write does not confirm a rule exists
     emit debugOutput(QString("pico-flexray: submitted override for slot 0x%1, cycle-base %2 (%3 bytes); it only "
                              "reaches the bus if the firmware has an injection rule for that slot")
-                         .arg(frame.frameId(), 0, 16).arg(static_cast<quint8>(frame.payload().at(0))).arg(out.size()));
+                         .arg(frame.frameId(), 0, 16).arg(frame.flexRayCycle()).arg(out.size()));
     return true;
 #else
     emit debugOutput("pico-flexray: built without libusb, can't send");

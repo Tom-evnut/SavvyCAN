@@ -113,14 +113,13 @@ int PicoFlexRayParser::feed(const char *data, int len, CommFrame::TimeStamp host
         const quint32 frameCrc = (quint32(crc[0]) << 16) | (quint32(crc[1]) << 8) | crc[2];
         pos += 2 + bodyLen;
 
-        QByteArray payload;
-        payload.reserve(1 + payloadLen);
-        payload.append(static_cast<char>(cycle));
-        payload.append(reinterpret_cast<const char *>(header + 5), payloadLen);
+        //the FlexRay payload itself; the cycle count is kept as a first-class field, not prepended to it
+        QByteArray payload(reinterpret_cast<const char *>(header + 5), payloadLen);
 
         CommFrame frame(CommFrame::FLEXRAYDataFrame);
         frame.setFrameId(slotId);
         frame.setExtendedFrameFormat(false);
+        frame.setFlexRayCycle(cycle);
         frame.setPayload(payload);
         frame.setBus(qMax(0, busFromSource(source)));
         frame.setReceived(true);

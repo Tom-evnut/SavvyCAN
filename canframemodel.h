@@ -19,8 +19,10 @@ enum class Column {
     Direction = 4, ///< Whether the frame was transmitted or received
     Bus       = 5, ///< The bus where the frame was transmitted or received
     Length    = 6, ///< The frames payload data length
-    ASCII     = 7, ///< The payload interpreted as ASCII characters
-    Data      = 8, ///< The frames payload data
+    Slot      = 7, ///< FlexRay slot ID (blank for non-FlexRay frames)
+    Cycle     = 8, ///< FlexRay communication cycle 0-63 (blank for non-FlexRay frames)
+    ASCII     = 9, ///< The payload interpreted as ASCII characters
+    Data      = 10,///< The frames payload data (kept last: the view stretches the last column)
     NUM_COLUMN
 };
 

@@ -1376,7 +1376,11 @@ void GraphingWindow::appendToGraph(GraphParams &params, CommFrame &frame, QVecto
     {
         params.strideSoFar = 0;
         int64_t tempVal; //64 bit temp value.
-        tempVal = Utility::processIntegerSignal(frame.payload(), params.startBit, params.numBits, params.intelFormat, params.isSigned); //& params.mask;
+        //DBC-signal graphs address bits in the FlexRay decode layout (cycle byte then payload); raw-bit graphs
+        //use the payload as shown.
+        const QByteArray graphBytes = (frame.isFlexRay() && params.associatedSignal) ? frame.flexRayDecodePayload()
+                                                                                     : frame.payload();
+        tempVal = Utility::processIntegerSignal(graphBytes, params.startBit, params.numBits, params.intelFormat, params.isSigned); //& params.mask;
         double xVal, yVal;
         if (Utility::timeStyle == TS_SECONDS)
         {
@@ -1522,7 +1526,9 @@ void GraphingWindow::createGraph(GraphParams &params, bool createGraphParam)
             }
             else qDebug() << "Signal in the frame!";
         }
-        tempVal = Utility::processIntegerSignal(frameCache[k].payload(), sBit, bits, intelFormat, isSigned); //& params.mask;
+        const QByteArray graphBytes = (frameCache[k].isFlexRay() && params.associatedSignal)
+                                          ? frameCache[k].flexRayDecodePayload() : frameCache[k].payload();
+        tempVal = Utility::processIntegerSignal(graphBytes, sBit, bits, intelFormat, isSigned); //& params.mask;
         //qDebug() << tempVal;
 
         if (params.associatedSignal)
