@@ -1,5 +1,6 @@
 #include "fuzzingwindow.h"
 #include "ui_fuzzingwindow.h"
+#include "windowfit.h"
 #include "utility.h"
 #include <QDebug>
 #include <QRandomGenerator>
@@ -13,6 +14,8 @@ FuzzingWindow::FuzzingWindow(const QVector<CommFrame> *frames, QWidget *parent) 
     ui(new Ui::FuzzingWindow)
 {
     ui->setupUi(this);
+    //too tall for a laptop screen otherwise: let it scroll, buttons stay visible
+    WindowFit::addScrollArea(this);
     setWindowFlags(Qt::Window);
 
     modelFrames = frames;

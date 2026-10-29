@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "windowfit.h"
 #include <QApplication>
 #include <QKeyEvent>
 #include <QTranslator>
@@ -40,7 +41,10 @@ public:
                 }
             }
         }
-        return QApplication::notify(receiver, event);
+        const bool result = QApplication::notify(receiver, event);
+        //no window opens bigger than the screen it is on, or partly off it
+        WindowFit::eventDelivered(receiver, event);
+        return result;
     }
 };
 

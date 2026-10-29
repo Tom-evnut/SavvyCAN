@@ -62,6 +62,7 @@ SOURCES += main.cpp\
     lognotespanel.cpp \
     markerpresets.cpp \
     markerpresetsdialog.cpp \
+    windowfit.cpp \
     shortcutcheck.cpp \
     github/githubaccountdialog.cpp \
     github/githubbrowserdialog.cpp \
@@ -174,6 +175,7 @@ HEADERS  += mainwindow.h \
     lognotespanel.h \
     markerpresets.h \
     markerpresetsdialog.h \
+    windowfit.h \
     shortcutcheck.h \
     github/githubaccountdialog.h \
     github/githubbrowserdialog.h \

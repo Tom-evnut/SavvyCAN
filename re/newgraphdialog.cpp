@@ -1,5 +1,6 @@
 #include "newgraphdialog.h"
 #include "ui_newgraphdialog.h"
+#include "windowfit.h"
 #include <QColorDialog>
 #include <QRandomGenerator>
 #include "utility.h"
@@ -10,6 +11,8 @@ NewGraphDialog::NewGraphDialog(DBCHandler *handler, QWidget *parent) :
     ui(new Ui::NewGraphDialog)
 {
     ui->setupUi(this);
+    //too tall for a laptop screen otherwise: let it scroll, buttons stay visible
+    WindowFit::addScrollArea(this);
 
     dbcHandler = handler;
 

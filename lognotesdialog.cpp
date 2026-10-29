@@ -1,4 +1,5 @@
 #include "lognotesdialog.h"
+#include "windowfit.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -149,6 +150,8 @@ LogNotesDialog::LogNotesDialog(Mode mode, QWidget *parent)
     editMarkers->setObjectName("markers");
     cbAsk->setObjectName("ask");
 
+    //too tall for a laptop screen otherwise: let it scroll, buttons stay visible
+    WindowFit::addScrollArea(this);
     resize(640, sizeHint().height());
     editTitle->setFocus();
 }
