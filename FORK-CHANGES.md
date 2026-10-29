@@ -13,6 +13,7 @@ README notice again (`e56f5a3`); they stay on `fork-ci` only.
 | OBD-II Poller after the first car test: polls from its own thread (no more stalls behind a busy GUI); a bitmap answer that comes after discovery's wait is still followed; supported-PID answers in the generated DBC | `obd2-car-fixes` | not offered yet |
 | Connections can't be removed while another thread sends on them (lock on the connection list) | `obd2-car-fixes` | not offered yet |
 | FlexRay capture, phase 2: the cycle count is a first-class field (Slot and Cycle columns in the frame list) instead of payload byte 0; the stored payload is the true FlexRay payload, while DBC decoding still multiplexes on the cycle | `flexray-phase2-model` | not offered yet |
+| qmake build (`SavvyCAN.pro`) links on Linux again: no stray Windows OpenGL library, and the handler factory, crop log and search window sources it was missing | `fix-qmake-link` | not offered yet |
 | This file and the README notice | `fork-ci` only | removed upstream (`e56f5a3`) |
 
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
@@ -150,6 +151,16 @@ LilyGO T-2CAN-FD hardware.
 ---
 
 ## Change log
+
+### 2026-10-29: qmake build links on Linux again (`fix-qmake-link`)
+
+- **Stray OpenGL link:** `SavvyCAN.pro` had a second `LIBS += libopengl32` outside any `win32` block (from upstream
+  `6190e51`), so the Linux link looked for a library that only exists on Windows. It's gone; the `win32-msvc*` and
+  `win32-g++` blocks still link OpenGL on Windows.
+- **Missing sources:** `bus_protocols/handler_factory`, `croplogdialog` and `re/searchwindow` (with
+  `ui/searchwindow.ui`) came in with upstream merges but were only added to `CMakeLists.txt`, so the qmake link
+  failed on `HandlerFactory::createUDSHandler()` and the crop log and search windows. They're in `SavvyCAN.pro` now,
+  which again builds the same sources as `CMakeLists.txt`.
 
 ### 2026-10-29: synced with upstream `QT6WIP` (`e56f5a3`)
 

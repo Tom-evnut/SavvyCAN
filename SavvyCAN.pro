@@ -114,6 +114,7 @@ SOURCES += main.cpp\
     bus_protocols/obd2_poller.cpp \
     bus_protocols/obd2_dbc.cpp \
     bus_protocols/uds_handler.cpp \
+    bus_protocols/handler_factory.cpp \
     jsedit.cpp \
     frameplaybackobject.cpp \
     helpwindow.cpp \
@@ -123,7 +124,9 @@ SOURCES += main.cpp\
     re/temporalgraphwindow.cpp \
     re/udsfirmwareuploaderwindow.cpp \
     filterutility.cpp \
-    pcaplite.cpp
+    pcaplite.cpp \
+    croplogdialog.cpp \
+    re/searchwindow.cpp
 
 HEADERS  += mainwindow.h \
     can_structs.h \
@@ -228,6 +231,7 @@ HEADERS  += mainwindow.h \
     bus_protocols/obd2_poller.h \
     bus_protocols/obd2_dbc.h \
     bus_protocols/uds_handler.h \
+    bus_protocols/handler_factory.h \
     bus_protocols/isotp_message.h \
     jsedit.h \
     frameplaybackobject.h \
@@ -238,7 +242,9 @@ HEADERS  += mainwindow.h \
     re/temporalgraphwindow.h \
     re/udsfirmwareuploaderwindow.h \
     filterutility.h \
-    pcaplite.h
+    pcaplite.h \
+    croplogdialog.h \
+    re/searchwindow.h
 
 FORMS    += ui/candatagrid.ui \
     triggerdialog.ui \
@@ -274,7 +280,8 @@ FORMS    += ui/candatagrid.ui \
     ui/helpwindow.ui \
     ui/newconnectiondialog.ui \
     ui/temporalgraphwindow.ui \
-    ui/udsfirmwareuploaderwindow.ui
+    ui/udsfirmwareuploaderwindow.ui \
+    ui/searchwindow.ui
     
 RESOURCES += \
     icons.qrc \
@@ -294,8 +301,6 @@ packagesExist(libusb-1.0) {
 win32-g++ {
    LIBS += libopengl32
 }
-
-   LIBS += libopengl32
 
 unix {
    isEmpty(PREFIX) {
