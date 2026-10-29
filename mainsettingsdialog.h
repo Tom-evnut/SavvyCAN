@@ -29,6 +29,7 @@ private:
 
     void populateLanguageCombo();
     void fitToScreen();
+    void showEvent(QShowEvent *event) override;
     void closeEvent(QCloseEvent *event);
     bool eventFilter(QObject *obj, QEvent *event);
 };
