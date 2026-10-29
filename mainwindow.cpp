@@ -117,6 +117,7 @@ MainWindow::MainWindow(QWidget *parent) :
     rxFrames = 0;
     framesPerSec = 0;
     continuousLogging = false;
+    continuousLoggingUseFilter = false;
     continuousLogFlushCounter = 0;
     continuousFrameCount = 0;
     continuousFirstUs = continuousLastUs = 0;
@@ -163,6 +164,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->actionCapture_Bisector, &QAction::triggered, this, &MainWindow::showBisectWindow);
     connect(ui->actionSignal_Viewer, &QAction::triggered, this, &MainWindow::showSignalViewer);
     connect(ui->actionSave_Continuous_Logfile, &QAction::triggered, this, &MainWindow::handleContinousLogging);
+    connect(ui->actionSave_Continuous_Filtered_Logfile, &QAction::triggered, this, &MainWindow::handleContinousLoggingFiltered);
     connect(ui->actionTemporal_Graph, &QAction::triggered, this, &MainWindow::showTemporalGraphWindow);
     connect(ui->actionCAN_Bridge, &QAction::triggered, this, &MainWindow::showCANBridgeWindow);
     connect(ui->actionFrame_Search, &QAction::triggered, this, &MainWindow::showSearchWindow);
@@ -531,7 +533,9 @@ void MainWindow::readSettings()
         ui->canFramesView->setColumnWidth(5, settings.value("Main/BusColumn", 40).toUInt()); //bus
         ui->canFramesView->setColumnWidth(6, settings.value("Main/LengthColumn", 40).toUInt()); //length
         ui->canFramesView->setColumnWidth(7, settings.value("Main/AsciiColumn", 50).toUInt()); //ascii
-        //ui->canFramesView->setColumnWidth(8, settings.value("Main/DataColumn", 225).toUInt()); //data
+        //readUpdateableSettings() runs after this, so read the flag straight from the settings here
+        if (settings.value("Main/UseHexAndDec", false).toBool())
+            ui->canFramesView->setColumnWidth(8, settings.value("Main/DataColumn", 300).toUInt()); //data
 
         QByteArray splitterMainState = settings.value("Main/SplitterMain").toByteArray();
         if (!splitterMainState.isEmpty())
@@ -618,6 +622,8 @@ void MainWindow::readUpdateableSettings()
 
     useColorsByCanId = settings.value("Main/ColorsByCanId", false).toBool();
     model->setUseColorsByCanId(useColorsByCanId);
+    useHexAndDec = settings.value("Main/UseHexAndDec", false).toBool();
+    model->setHexAndDecMode(useHexAndDec);
 
     bool tempBool;
     TimeStyle ts = TS_MICROS;
@@ -666,7 +672,8 @@ void MainWindow::writeSettings()
         settings.setValue("Main/BusColumn", ui->canFramesView->columnWidth(5));
         settings.setValue("Main/LengthColumn", ui->canFramesView->columnWidth(6));
         settings.setValue("Main/AsciiColumn", ui->canFramesView->columnWidth(7));
-        //settings.setValue("Main/DataColumn", ui->canFramesView->columnWidth(8));
+        if (useHexAndDec)
+            settings.setValue("Main/DataColumn", ui->canFramesView->columnWidth(8));
         settings.setValue("Main/SplitterMain", ui->splitterMain->saveState());
     }
     // Always save splitterLeft so send-panel height is restored on next launch
@@ -1342,7 +1349,9 @@ void MainWindow::filterClearAll()
 void MainWindow::logReceivedFrame(CANConnection* conn, QVector<CommFrame> frames)
 {
     Q_UNUSED(conn);
-    if (continuousLogging)
+    if (!continuousLogging) return;
+
+    if (!continuousLoggingUseFilter)
     {
         FrameFileIO::writeContinuousNative(&frames, 0);
         //for the continuous log's notes
@@ -1353,6 +1362,17 @@ void MainWindow::logReceivedFrame(CANConnection* conn, QVector<CommFrame> frames
             if (continuousFrameCount == 0 || us > continuousLastUs) continuousLastUs = us;
             continuousFrameCount++;
         }
+    }
+    else
+    {
+        QVector<CommFrame> filtered;
+        for (const CommFrame &f : std::as_const(frames))
+        {
+            if (model->passesFrameFilters(f))
+                filtered.append(f);
+        }
+        if (!filtered.isEmpty())
+            FrameFileIO::writeContinuousNative(&filtered, 0);
     }
 }
 
@@ -2082,23 +2102,65 @@ void MainWindow::editLogNotes()
 
 void MainWindow::handleContinousLogging()
 {
-    if (!continuousLogging)
-    {
-        //only logging once a file was picked and opened (cancelling the file dialog used to leave it "logging")
-        if (!FrameFileIO::openContinuousNative()) return;
-        continuousLogging = true;
-        continuousFrameCount = 0;
-        ui->actionSave_Continuous_Logfile->setText(tr("Cease Continuous Logging"));
-        if (LogNotesDialog::askOnCapture()) askCaptureNotes();
-    }
-    else
+    // If already doing unfiltered logging, stop it
+    if (continuousLogging && !continuousLoggingUseFilter)
     {
         continuousLogging = false;
         ui->actionSave_Continuous_Logfile->setText(tr("Start Continuous Logging"));
         ui->lblContMsg->setText("");
         FrameFileIO::closeContinuousNative();
         finishContinuousLogNotes();
+        return;
     }
+
+    // If filtered logging is running, stop it before switching
+    if (continuousLogging)
+    {
+        FrameFileIO::closeContinuousNative();
+        finishContinuousLogNotes();
+        continuousLogging = false;
+        ui->actionSave_Continuous_Filtered_Logfile->setText(tr("Start Continuous Logging (Filtered)"));
+        ui->lblContMsg->setText("");
+    }
+
+    // Start unfiltered logging — open file first; if cancelled, do nothing
+    if (!FrameFileIO::openContinuousNative())
+        return;
+
+    continuousLoggingUseFilter = false;
+    continuousLogging = true;
+    ui->actionSave_Continuous_Logfile->setText(tr("Cease Continuous Logging"));
+    if (LogNotesDialog::askOnCapture()) askCaptureNotes();
+}
+
+void MainWindow::handleContinousLoggingFiltered()
+{
+    // If already doing filtered logging, stop it
+    if (continuousLogging && continuousLoggingUseFilter)
+    {
+        continuousLogging = false;
+        ui->actionSave_Continuous_Filtered_Logfile->setText(tr("Start Continuous Logging (Filtered)"));
+        ui->lblContMsg->setText("");
+        FrameFileIO::closeContinuousNative();
+        return;
+    }
+
+    // If unfiltered logging is running, stop it before switching
+    if (continuousLogging)
+    {
+        FrameFileIO::closeContinuousNative();
+        continuousLogging = false;
+        ui->actionSave_Continuous_Logfile->setText(tr("Start Continuous Logging"));
+        ui->lblContMsg->setText("");
+    }
+
+    // Start filtered logging — open file first; if cancelled, do nothing
+    if (!FrameFileIO::openContinuousNative())
+        return;
+
+    continuousLoggingUseFilter = true;
+    continuousLogging = true;
+    ui->actionSave_Continuous_Filtered_Logfile->setText(tr("Cease Continuous Logging (Filtered)"));
 }
 
 //Continuous logging stopped: the notes go at the end of the log it wrote, after asking for what was seen

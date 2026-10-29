@@ -1,34 +1,18 @@
 # Changes in this fork (`fork-ci`)
 
-`fork-ci` follows [collin80/SavvyCAN](https://github.com/collin80/SavvyCAN) `QT6WIP` (synced at `3288f1f`,
-2026-10-14). Since 2026-10-13, upstream includes this fork's CAN FD series (collin80/SavvyCAN#1134 to
-collin80/SavvyCAN#1141) and the other open pull requests `fork-ci` carried.
+`fork-ci` follows [collin80/SavvyCAN](https://github.com/collin80/SavvyCAN) `QT6WIP` (synced at `e56f5a3`,
+2026-10-29). On 2026-10-28 collin80 merged `fork-ci` itself into `QT6WIP` (`4fb1746`, taking `fork-ci` as of
+`6411223`), so upstream now has everything this file lists up to then: the CAN FD series, GitHub repos, log notes,
+the OBD-II Poller, FlexRay, the loader and saver fixes and the fork CI workflow. He then removed this file and the
+README notice again (`e56f5a3`); they stay on `fork-ci` only.
 
 `fork-ci` only adds what isn't upstream yet:
 
 | Change | Branch | Upstream |
 |---|---|---|
-| Playback: "Send all frames as CAN FD" (with or without BRS); the last frames of a burst are no longer dropped | `fd-playback` | merged: [#1149](https://github.com/collin80/SavvyCAN/pull/1149) |
-| ASC: CAN FD frames written as `d` lines (CANalyzer 8.x); CRTD format check no longer reads out of bounds | `fd-logs` (`ba3d4ee`) | merged: [#1150](https://github.com/collin80/SavvyCAN/pull/1150) |
-| GitHub repos: load and save log files and DBC files in GitHub repos (File menu, DBC File Manager), signed in with the SavvyCAN GitHub App or a token | `github-phase1-load`, `github-phase2-save` | fork only for now |
-| OBD-II Poller after the first car test: polls from its own thread (no more stalls behind a busy GUI); supported-PID answers in the generated DBC | `obd2-car-fixes` | fork only for now |
+| OBD-II Poller after the first car test: polls from its own thread (no more stalls behind a busy GUI); a bitmap answer that comes after discovery's wait is still followed; supported-PID answers in the generated DBC | `obd2-car-fixes` | not offered yet |
 | Connections can't be removed while another thread sends on them (lock on the connection list) | `obd2-car-fixes` | not offered yet |
-| OBD-II answers graphed: Make DBC... writes and attaches a DBC for them, Graph Polled PIDs, a warning when adapters' clocks differ | `obd2-phase4-dbc` | fork only for now |
-| Graphs of multiplexed signals no longer take values from frames of other multiplexor values while capturing; big-endian signals in a frame's last bytes decode in graphs | `obd2-phase4-dbc` | not offered yet |
-| OBD-II Poller window (Send Frames > OBD-II Poller): discover ECUs, tick PIDs to poll, live values, VIN, poll sets | `obd2-phase3-window` | fork only for now |
-| OBD-II poll engine (no UI yet): ECU and PID discovery, polling with one request outstanding, timeouts, rate limit, Mode 01 and 09 only | `obd2-phase2-poller` | fork only for now |
-| OBD-II PID table and decoder (no UI yet): Mode 01 PIDs, supported-PID bitmaps, Mode 09 VIN | `obd2-phase1-pids` | fork only for now |
-| ISO-TP and UDS unit tests build and pass again; UDS Scanner shows the right negative response code | `obd2-phase0-tests` | not offered yet |
-| Log notes: setup, scenario and markers saved with a log (inside native CSV logs, a `.notes.md` file for the others), asked for when saving and when capture starts, shown in a Log Notes panel when loading; markers (Ctrl+M) in the panel and graphs, and marker presets with keys of their own; loaded and saved with logs on GitHub | `log-notes`, `log-notes-ui`, `log-notes-capture`, `log-notes-github`, `log-notes-presets` | fork only for now |
-| Log and DBC files loadable and savable without the file dialogs; Candump saves no longer reported as failed; a failed DBC load no longer shows another file | `github-phase0-refactor`, `github-phase1-load` | not offered yet |
-| Log loaders: Microchip and Wireshark files with a wrong byte count no longer read past the line or packet | `fix-loader-bounds` | not offered yet |
-| Wireshark loaders: pcap and pcapng records over 256 bytes are skipped instead of overflowing a buffer; a broken block size no longer hangs the load | `fix-pcaplite-bounds` | not offered yet |
-| Log savers: CAN-DO saves work on Qt 6, Generic ID/Data CSV keeps frames shorter than 8 bytes, Vehicle Spy (never written) no longer offered for saving | `fix-log-savers` | not offered yet |
-| Short frames in logs: Vector trace no longer crashes on a frame with no data; IXXAT MiniLog, Cabana and PCAN TRC keep frames shorter than 8 bytes as they were | `fix-short-frame-loaders` | not offered yet |
-| FlexRay capture from a [pico-flexray](https://github.com/dynm/pico-flexray) over USB (libusb); FlexRay frames up to 255 bytes in the frame list, DBC decoding and native CSV | `flexray-pico` | not offered yet |
-| FlexRay capture, phase 1: device timestamps (with pico-flexray record format 2 firmware), null frames kept, header indicators and CRCs kept with each frame | `flexray-phase1-capture` | not offered yet |
-| FlexRay sending via the pico-flexray firmware injector (payload override of a configured slot, armed by un-ticking listen-only); bench-tested on Picos, a BMW DME and a running BMW F11 | `flexray-pico` | not offered yet |
-| Fork CI (Linux AppImage and Windows package on every push, with Qt's TLS plugins), this file, the README notice | `fork-ci` only | n/a |
+| This file and the README notice | `fork-ci` only | removed upstream (`e56f5a3`) |
 
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
 *Fork Build (Linux + Windows)* runs under **Actions**.
@@ -45,7 +29,7 @@ Every fix or new feature that lands on `fork-ci` gets:
 
 ## CAN FD support
 
-Everything here is in upstream `QT6WIP` except the rows marked "fork only".
+Everything here is in upstream `QT6WIP`.
 
 | Interface or file | Receive FD | Send FD | FD setup (data rate, on/off) | Branch |
 |---|---|---|---|---|
@@ -58,19 +42,19 @@ Everything here is in upstream `QT6WIP` except the rows marked "fork only".
 | CANserver | ❌ fixed 16-byte Panda records, classic only | | | |
 | Native CSV | ✅ | ✅ (save) | | `fd-logs` |
 | candump | ✅ `##<flags>` | ✅ | | `fd-logs` |
-| Vector ASC | ✅ `CANFD` lines, and `d` lines over 8 bytes (CANalyzer 8.x, fork only) | ✅ | | `fd-logs` |
+| Vector ASC | ✅ `CANFD` lines, and `d` lines over 8 bytes (CANalyzer 8.x) | ✅ | | `fd-logs` |
 | Vector BLF | ✅ objects 100 and 101 | (no BLF saver) | | `fd-logs` |
 | PCAN TRC 2.0/2.1 | ✅ `FD/FB/FE/BI` | (no TRC saver) | | `fd-logs` |
 | Wireshark SocketCAN pcap | ✅ | (no pcap saver) | | `fd-logs` |
 | DBC files | ✅ `VFrameFormat`, `CANFD_BRS`, signals past byte 8 | ✅ saved back | FD and BRS check boxes in the message editor | `fd-dbc` |
 | Send Frames window and scripts | n/a | ✅ FD/BRS columns, `can.sendFDFrame()` | DBC CAN FD messages tick FD/BRS | `fd-send`, `fd-dbc` |
-| Playback window | n/a | ✅ as loaded, or **Send all frames as CAN FD** (with or without BRS, fork only) | n/a | `fd-playback` |
+| Playback window | n/a | ✅ as loaded, or **Send all frames as CAN FD** (with or without BRS) | n/a | `fd-playback` |
 
 **Frame list:** the frame type column shows `D` for CAN FD frames, with `B` for BRS and `E` for ESI.
 
 **Frame model:** a frame's type and its FD flag always agree (`fd-core`).
 
-## FlexRay support (`flexray-pico`, fork only)
+## FlexRay support (`flexray-pico`)
 
 | Area | What works |
 |---|---|
@@ -94,32 +78,32 @@ Everything here is in upstream `QT6WIP` except the rows marked "fork only".
 | `fd-lawicel` | `fd-core` | LAWICEL CAN FD receive fixes and data rate | merged: [#1137](https://github.com/collin80/SavvyCAN/pull/1137) |
 | `fd-logs` | `fd-core` | CAN FD in log files | merged: [#1138](https://github.com/collin80/SavvyCAN/pull/1138); `ba3d4ee` (ASC `d` lines, CRTD check) merged: [#1150](https://github.com/collin80/SavvyCAN/pull/1150) |
 | `fd-network` | `fd-core` | MQTT and CANlogserver CAN FD | merged: [#1139](https://github.com/collin80/SavvyCAN/pull/1139) |
-| `fd-gvret` | `fd-send` + `fd-serialbus` | GVRET `GET_FD`/`SETUP_FD` | [#1140](https://github.com/collin80/SavvyCAN/pull/1140) (draft: protocol proposal) |
+| `fd-gvret` | `fd-send` + `fd-serialbus` | GVRET `GET_FD`/`SETUP_FD` | merged: [#1140](https://github.com/collin80/SavvyCAN/pull/1140) |
 | `fd-dbc` | `fd-send` + `fd-core` | DBC CAN FD messages | merged: [#1141](https://github.com/collin80/SavvyCAN/pull/1141) |
 | `fd-playback` | `fd-core` | Playback: send all frames as CAN FD; last frames of a burst no longer dropped | merged: [#1149](https://github.com/collin80/SavvyCAN/pull/1149) |
-| `github-phase0-refactor` | `fork-ci` | File dialogs split from loading and saving logs and DBC files; Candump save result | - |
-| `github-phase1-load` | `fork-ci` | GitHub repos: loading logs and DBC files, sign-in, download cache | - |
-| `github-shared-repos` | `fork-ci` | One GitHub repo list for logs and DBC files | - |
-| `github-polish` | `fork-ci` | SavvyCAN GitHub App built in, Choose Repos..., EV-CANlogs preloaded | - |
-| `log-notes` | `fork-ci` | Log notes: format, native CSV block, `.notes.md` file | - |
-| `obd2-car-fixes` | `fork-ci` | OBD-II poller in its own thread, targetted frames, connection list lock; bitmap PIDs in the DBC | - |
-| `obd2-phase4-dbc` | `fork-ci` | OBD-II DBC, Graph Polled PIDs, clock warning; graph and DBC fixes; `TestObd2Dbc` | - |
-| `obd2-phase3-window` | `fork-ci` | OBD-II Poller window, help page, `TestObd2Window` | - |
-| `obd2-phase2-poller` | `fork-ci` | OBD-II poll engine `Obd2Poller`, `TestObd2Poller` | - |
-| `obd2-phase1-pids` | `fork-ci` | OBD-II PID table and decoder, `TestObd2Pids` | - |
-| `obd2-phase0-tests` | `fork-ci` | ISO-TP and UDS unit tests ported to `CommFrame`; UDS payload contract; UDS Scanner NRC | - |
-| `github-install-check` | `fork-ci` | The save window checks the SavvyCAN app is installed on the repo | - |
-| `github-help` | `fork-ci` | Help page for the GitHub windows, F1 and Help buttons | - |
-| `github-phase2-save` | `fork-ci` | Saving logs and DBC files to GitHub: conflicts, new branch and pull request, New Repo... | - |
-| `fix-loader-bounds` | `fork-ci` | Microchip and Wireshark loaders limit the byte count to the data given | - |
-| `fix-pcaplite-bounds` | `fork-ci` | pcaplite skips records over 256 bytes and stops at broken block sizes | - |
-| `log-notes-ui` | `fork-ci` | Log notes dialog on save, templates, Log Notes panel, File > Log Notes... | - |
-| `log-notes-capture` | `fork-ci` | Log notes when capture starts, in continuous logs; markers in the panel and graphs | - |
-| `log-notes-github` | `fork-ci` | Log notes with GitHub: `.notes.md` downloaded with a log and committed with GitHub saves | - |
-| `log-notes-presets` | `fork-ci` | Marker presets: prepared marker texts with a key each, Next and Undo keys, panel buttons | - |
-| `flexray-pico` | `fork-ci` | FlexRay frames, the pico-flexray connection, and FlexRay sending via the firmware injector | not offered yet |
-| `flexray-phase1-capture` | `flexray-pico` | Device timestamps, null frames, FlexRay header details (roadmap phase 1) | not offered yet |
-| `fork-ci` | upstream `QT6WIP` | Upstream plus the changes that aren't merged yet and the fork's CI | - |
+| `github-phase0-refactor` | `fork-ci` | File dialogs split from loading and saving logs and DBC files; Candump save result | in `QT6WIP` via `4fb1746` |
+| `github-phase1-load` | `fork-ci` | GitHub repos: loading logs and DBC files, sign-in, download cache | in `QT6WIP` via `4fb1746` |
+| `github-shared-repos` | `fork-ci` | One GitHub repo list for logs and DBC files | in `QT6WIP` via `4fb1746` |
+| `github-polish` | `fork-ci` | SavvyCAN GitHub App built in, Choose Repos..., EV-CANlogs preloaded | in `QT6WIP` via `4fb1746` |
+| `log-notes` | `fork-ci` | Log notes: format, native CSV block, `.notes.md` file | in `QT6WIP` via `4fb1746` |
+| `obd2-car-fixes` | `fork-ci` | OBD-II poller in its own thread, targetted frames, connection list lock; bitmap PIDs in the DBC | not offered yet |
+| `obd2-phase4-dbc` | `fork-ci` | OBD-II DBC, Graph Polled PIDs, clock warning; graph and DBC fixes; `TestObd2Dbc` | in `QT6WIP` via `4fb1746` |
+| `obd2-phase3-window` | `fork-ci` | OBD-II Poller window, help page, `TestObd2Window` | in `QT6WIP` via `4fb1746` |
+| `obd2-phase2-poller` | `fork-ci` | OBD-II poll engine `Obd2Poller`, `TestObd2Poller` | in `QT6WIP` via `4fb1746` |
+| `obd2-phase1-pids` | `fork-ci` | OBD-II PID table and decoder, `TestObd2Pids` | in `QT6WIP` via `4fb1746` |
+| `obd2-phase0-tests` | `fork-ci` | ISO-TP and UDS unit tests ported to `CommFrame`; UDS payload contract; UDS Scanner NRC | in `QT6WIP` via `4fb1746` |
+| `github-install-check` | `fork-ci` | The save window checks the SavvyCAN app is installed on the repo | in `QT6WIP` via `4fb1746` |
+| `github-help` | `fork-ci` | Help page for the GitHub windows, F1 and Help buttons | in `QT6WIP` via `4fb1746` |
+| `github-phase2-save` | `fork-ci` | Saving logs and DBC files to GitHub: conflicts, new branch and pull request, New Repo... | in `QT6WIP` via `4fb1746` |
+| `fix-loader-bounds` | `fork-ci` | Microchip and Wireshark loaders limit the byte count to the data given | in `QT6WIP` via `4fb1746` |
+| `fix-pcaplite-bounds` | `fork-ci` | pcaplite skips records over 256 bytes and stops at broken block sizes | in `QT6WIP` via `4fb1746` |
+| `log-notes-ui` | `fork-ci` | Log notes dialog on save, templates, Log Notes panel, File > Log Notes... | in `QT6WIP` via `4fb1746` |
+| `log-notes-capture` | `fork-ci` | Log notes when capture starts, in continuous logs; markers in the panel and graphs | in `QT6WIP` via `4fb1746` |
+| `log-notes-github` | `fork-ci` | Log notes with GitHub: `.notes.md` downloaded with a log and committed with GitHub saves | in `QT6WIP` via `4fb1746` |
+| `log-notes-presets` | `fork-ci` | Marker presets: prepared marker texts with a key each, Next and Undo keys, panel buttons | in `QT6WIP` via `4fb1746` |
+| `flexray-pico` | `fork-ci` | FlexRay frames, the pico-flexray connection, and FlexRay sending via the firmware injector | in `QT6WIP` via `4fb1746` |
+| `flexray-phase1-capture` | `flexray-pico` | Device timestamps, null frames, FlexRay header details (roadmap phase 1) | in `QT6WIP` via `4fb1746` |
+| `fork-ci` | upstream `QT6WIP` | Upstream plus the changes that aren't merged yet, this file and the README notice | - |
 
 ## Other pull requests `fork-ci` carried
 
@@ -138,8 +122,8 @@ collin80/SavvyCAN#1095, collin80/SavvyCAN#1099 and collin80/SavvyCAN#1101.
   `DBCFile`'s destructor frees only its nodes, never its message handler, messages or signals, and
   `DBCSignalHandler::removeAllSignals()` calls `free()` on signals made with `new`.
 - **GVRET FD layout:** the `GET_FD`/`SETUP_FD` byte layout proposed in
-  [#1140](https://github.com/collin80/SavvyCAN/pull/1140) was merged upstream as proposed. ESP32RET's `t2canfd-board`
-  branch in `Tom-evnut/ESP32RET` implements it; upstream ESP32RET doesn't yet.
+  [#1140](https://github.com/collin80/SavvyCAN/pull/1140) was merged upstream as proposed. Upstream ESP32RET
+  implements it since collin80/ESP32RET#59; T-2CAN-FD board support is collin80/ESP32RET#60.
 - **socketcand and CANserver:** classic CAN only (see the CAN FD table).
 - **Vehicle Spy:** logs load but can't be saved; the saver was never written (see `fix-log-savers`).
 - **pcapng timestamp resolution** (found in `fix-pcaplite-bounds`, upstream too, not fixed yet): `pcaplite.cpp`
@@ -163,6 +147,21 @@ LilyGO T-2CAN-FD hardware.
 ---
 
 ## Change log
+
+### 2026-10-29: synced with upstream `QT6WIP` (`e56f5a3`)
+
+- **`fork-ci` merged upstream:** on 2026-10-28 collin80 merged `fork-ci` (as of `6411223`, the FlexRay merge) into
+  `QT6WIP` (`4fb1746`): everything in this file up to then is upstream now, so the summary table shrank to the
+  car-test fixes below. He then removed this file and the README notice (`e56f5a3`); `fork-ci` keeps both (the
+  README notice is now on top of upstream's new README text).
+- **New from upstream:**
+  - BLF CAN FD regression fixed (collin80/SavvyCAN#1151) on top of the large-file BLF loader (collin80/SavvyCAN#1116)
+    and a fix for graph windows showing another window's plot under OpenGL;
+  - filtered continuous logging (collin80/SavvyCAN#1146), a Decimal Value column (collin80/SavvyCAN#1147), new IDs
+    enabled in the filter by default (collin80/SavvyCAN#1148);
+  - the signal being edited shown as a gradient in the DBC signal editor.
+- **Conflicts:** only this file (deleted upstream, kept here).
+- **Fork only now:** `obd2-car-fixes` (2026-10-28), not offered upstream yet.
 
 ### 2026-10-28: OBD-II Poller fixes from the first car test (`obd2-car-fixes`)
 

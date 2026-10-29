@@ -95,6 +95,7 @@ private slots:
     void handleSaveFilters();
     void handleLoadFilters();
     void handleContinousLogging();
+    void handleContinousLoggingFiltered();
     void showGraphingWindow();
     void showFrameDataAnalysis();
     void clearFrames();
@@ -191,6 +192,7 @@ private:
     bool inhibitFilterUpdate;
     bool useHex;
     bool useColorsByCanId;
+    bool useHexAndDec;
     bool allowCapture;
     bool ignoreDBCColors;
     bool CSVAbsTime;
@@ -199,6 +201,7 @@ private:
     bool inhibitSenderChanged;
 
     bool continuousLogging;
+    bool continuousLoggingUseFilter;
     int continuousLogFlushCounter;
     qint64 continuousFrameCount; //what the continuous log has, for its notes
     qint64 continuousFirstUs;

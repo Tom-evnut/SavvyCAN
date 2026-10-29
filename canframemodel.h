@@ -21,6 +21,7 @@ enum class Column {
     Length    = 6, ///< The frames payload data length
     ASCII     = 7, ///< The payload interpreted as ASCII characters
     Data      = 8, ///< The frames payload data
+    DataDec   = 9,
     NUM_COLUMN
 };
 
@@ -48,6 +49,7 @@ public:
     void setOverwriteMode(bool);
     void setHexMode(bool);
     void setUseColorsByCanId(bool);
+    void setHexAndDecMode(bool);
     void setClearMode(bool mode);
     void setTimeStyle(TimeStyle newStyle);
     void setIgnoreDBCColors(bool mode);
@@ -76,6 +78,7 @@ public:
     const QMap<int, bool> *getBusFiltersReference() const; //this neither
     const QMap<int, bool> *getDirFiltersReference() const;
     const QMap<int, bool> *getLengthFiltersReference() const;
+    bool passesFrameFilters(const CommFrame &frame);
 
 public slots:
     void addFrame(const CommFrame&, bool);
@@ -88,7 +91,6 @@ private:
     void qSortCommFrameAsc(QVector<CommFrame>* frames, Column column, int lowerBound, int upperBound);
     void qSortCommFrameDesc(QVector<CommFrame>* frames, Column column, int lowerBound, int upperBound);
     uint64_t getCommFrameVal(QVector<CommFrame> *frames, int row, Column col);
-    bool passesFrameFilters(const CommFrame &frame);
     quint64 changingKey(const CommFrame &frame) const;
     bool any_filters_are_configured(void);
     bool any_busfilters_are_configured(void);
