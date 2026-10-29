@@ -162,6 +162,10 @@ LilyGO T-2CAN-FD hardware.
   - the signal being edited shown as a gradient in the DBC signal editor.
 - **Conflicts:** only this file (deleted upstream, kept here).
 - **Fork only now:** `obd2-car-fixes` (2026-10-28), not offered upstream yet.
+- **Flaky test fixed:** `TestObd2Poller::testRunsInItsOwnThread` (from `obd2-car-fixes`) failed about 1 run in 5 in
+  Docker, before and after the merge. `QTRY_COMPARE` looks again only every 50 ms, so the test's reply could arrive
+  after the poller's 50 ms discovery wait had run out. The test now gives the poller a 500 ms reply wait: 0 failures
+  in 100 runs. The poller itself was right.
 
 ### 2026-10-28: OBD-II Poller fixes from the first car test (`obd2-car-fixes`)
 

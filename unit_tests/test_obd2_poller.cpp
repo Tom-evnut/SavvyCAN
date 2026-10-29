@@ -593,6 +593,8 @@ void TestObd2Poller::testRunsInItsOwnThread()
         []() -> int { return 1; },
         ISOTP_HANDLER::PendingConnection<ISOTP_HANDLER>());
     auto *threaded = new Obd2Poller(handler); //the real clock
+    //QTRY_COMPARE below looks again only every 50 ms, so the reply could come after a 50 ms wait had run out
+    threaded->setReplyTimeout(500);
     handler->setParent(threaded);
 
     QThread thread;
@@ -621,7 +623,7 @@ void TestObd2Poller::testRunsInItsOwnThread()
     reply.setReceived(true);
     QVERIFY(QMetaObject::invokeMethod(threaded, "gotTargettedFrame", Qt::QueuedConnection, Q_ARG(CommFrame, reply)));
 
-    QTRY_VERIFY(finished); //after the 50 ms wait, run by the poller's own timer in its thread
+    QTRY_VERIFY(finished); //after the reply wait, run by the poller's own timer in its thread
     QCOMPARE(states.last().ecus.size(), 1);
     QCOMPARE(states.last().ecus[0].supportedPids, QList<quint8>({0x01}));
     QVERIFY(!states.last().discovering);
