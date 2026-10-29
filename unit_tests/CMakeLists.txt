@@ -211,6 +211,7 @@ set(TEST_SOURCES_LOG_NOTES_UI
     ../lognotes.cpp
     ../markerpresets.cpp
     ../shortcutcheck.cpp
+    ../windowfit.cpp
 )
 
 add_executable(TestLogNotesUi ${TEST_SOURCES_LOG_NOTES_UI})

@@ -1,5 +1,6 @@
 #include "searchwindow.h"
 #include "ui_searchwindow.h"
+#include "../windowfit.h"
 #include "../utility.h"
 #include <QDebug>
 #include <cmath>
@@ -16,6 +17,8 @@ SearchWindow::SearchWindow(const QVector<CommFrame> *frames, DBCHandler *handler
     , currentMatchIndex(-1)
 {
     ui->setupUi(this);
+    //too tall for a laptop screen otherwise: let it scroll, buttons stay visible
+    WindowFit::addScrollArea(this);
     setWindowFlags(Qt::Window);
 
     // DBC signal pickers

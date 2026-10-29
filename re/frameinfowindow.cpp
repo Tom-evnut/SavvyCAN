@@ -1,5 +1,6 @@
 #include "frameinfowindow.h"
 #include "ui_frameinfowindow.h"
+#include "windowfit.h"
 #include "mainwindow.h"
 #include "helpwindow.h"
 #include <QtDebug>
@@ -34,6 +35,8 @@ FrameInfoWindow::FrameInfoWindow(const QVector<CommFrame> *frames, QWidget *pare
     ui(new Ui::FrameInfoWindow)
 {
     ui->setupUi(this);
+    //too tall for a laptop screen otherwise: let it scroll, buttons stay visible
+    WindowFit::addScrollArea(this);
     setWindowFlags(Qt::Window);
 
     readSettings();

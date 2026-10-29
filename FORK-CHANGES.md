@@ -14,6 +14,7 @@ README notice again (`e56f5a3`); they stay on `fork-ci` only.
 | Connections can't be removed while another thread sends on them (lock on the connection list) | `obd2-car-fixes` | not offered yet |
 | FlexRay capture, phase 2: the cycle count is a first-class field (Slot and Cycle columns in the frame list) instead of payload byte 0; the stored payload is the true FlexRay payload, while DBC decoding still multiplexes on the cycle | `flexray-phase2-model` | not offered yet |
 | Preferences dialog fits small screens: settings in a scroll area, Close button always visible, size capped to the screen | `fix-settings-dialog-size` | not offered yet |
+| Every window fits the screen it opens on: size capped and kept on screen each time it is shown (saved sizes from a bigger monitor too); the six windows too tall for a laptop scroll, with their buttons kept visible | `fix-window-sizing` | not offered yet |
 | This file and the README notice | `fork-ci` only | removed upstream (`e56f5a3`) |
 
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
@@ -151,6 +152,37 @@ LilyGO T-2CAN-FD hardware.
 ---
 
 ## Change log
+
+### 2026-10-29: every window fits small screens (`fix-window-sizing`)
+
+After the Preferences fix, every window and dialog was opened under `QT_QPA_PLATFORM=offscreen` on 1366x768
+(100 % and 125 %), 1920x1080 (100 % and 150 %) and 800x600 screens: 44 in all, counting Log Notes once in each
+of its four modes. That covers every `ui/*.ui` window, the code-built ones (OBD-II, log notes, marker presets,
+crop, GitHub) and the DBC editors. On 1366x768 at 125 %, 31 of the 44 did not fit:
+
+- **22 started partly off screen:** their default size and position ran past the screen edge (for example
+  Connections 960x669 at 100,100). A size saved on a bigger monitor does the same.
+- **9 (six windows) could not fit at all,** because their layouts needed more height than the screen has:
+  MainWindow (703 px), Frame Info (1014 px, too tall even for 1920x1080), Fuzzing, Search, Log Notes in all four
+  modes, and New Graph.
+
+Changes:
+
+- **`windowfit.{h,cpp}` (new):** `SavvyCANApplication::notify` calls `WindowFit::eventDelivered()` for every event.
+  Each time a top-level window is shown, the window is capped to the available area of its screen (minus the title
+  bar and frame) and moved inside it. This runs after the window's own `showEvent`, where most windows restore their
+  saved size and position, and before the window appears. The old check (`Utility::constrainedWindowPos`) only made
+  sure the top-left corner was on some screen.
+- **Scroll areas:** MainWindow, Frame Info, Fuzzing, Search, Log Notes and New Graph call
+  `WindowFit::addScrollArea(this)`. It moves their contents into a scroll area (for MainWindow, its central widget).
+  Rows of buttons at the bottom stay below the scroll area, always visible: Search/Prev/Next, Add Graph,
+  Start/Stop, and the Log Notes buttons. When it is first shown, each window still opens as big as its contents
+  need wherever the screen allows, so nothing changes on a big monitor.
+- **Unchanged:** `.ui` files, settings keys, and how the windows look when they fit.
+- **Checked:** a harness built from the app's own object files opens every window. All 44 windows now fit at all
+  five sizes, and every wrapped window's bottom buttons are inside the window. With every window's saved size set to
+  1900x1300 at 400,100 (a 2560x1440 monitor), all 44 still fit; without the cap, 21 to 38 windows don't. The CMake
+  build and all 10 unit tests pass (`TestLogNotesUi` now also builds `windowfit.cpp`).
 
 ### 2026-10-29: Preferences dialog fits small screens (`fix-settings-dialog-size`)
 

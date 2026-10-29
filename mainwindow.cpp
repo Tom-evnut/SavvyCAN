@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "windowfit.h"
 #include "can_structs.h"
 #include <QDateTime>
 #include <QFileDialog>
@@ -41,6 +42,8 @@ MainWindow::MainWindow(QWidget *parent) :
     ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    //too tall for a laptop screen otherwise: let it scroll, buttons stay visible
+    WindowFit::addScrollArea(this);
 #if QT_VERSION < QT_VERSION_CHECK( 6, 0, 0 )
     qRegisterMetaTypeStreamOperators<QVector<QString>>();
     qRegisterMetaTypeStreamOperators<QVector<int>>();
