@@ -14,6 +14,7 @@ README notice again (`e56f5a3`); they stay on `fork-ci` only.
 | Connections can't be removed while another thread sends on them (lock on the connection list) | `obd2-car-fixes` | not offered yet |
 | FlexRay capture, phase 2: the cycle count is a first-class field (Slot and Cycle columns in the frame list) instead of payload byte 0; the stored payload is the true FlexRay payload, while DBC decoding still multiplexes on the cycle | `flexray-phase2-model` | not offered yet |
 | Preferences dialog fits small screens: settings in a scroll area, Close button always visible, size capped to the screen | `fix-settings-dialog-size` | not offered yet |
+| Preferences dialog: F1 help works after the dialog has been closed and reopened, and other key releases are no longer swallowed | `fix-settings-f1-help` | not offered yet |
 | This file and the README notice | `fork-ci` only | removed upstream (`e56f5a3`) |
 
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
@@ -151,6 +152,17 @@ LilyGO T-2CAN-FD hardware.
 ---
 
 ## Change log
+
+### 2026-10-29: F1 help in the Preferences dialog after reopening (`fix-settings-f1-help`)
+
+- **F1 stopped working:** the dialog is created once and reused, but its F1 key filter was taken off when it closed
+  and only put on in the constructor, so F1 opened the help only until the dialog was first closed. The filter now
+  goes back on every time the dialog is shown, as in the Connections and Playback windows.
+- **Key releases swallowed:** the filter consumed every key release that reached the dialog, not just F1. It now
+  consumes only F1 and passes everything else on.
+- **Checked** with a small offscreen test. F1 opens `preferences.md` on first show and again after Close, after
+  closing the window and after Escape, opening it exactly once each time. A, Escape and Return releases are passed
+  on. On `fork-ci` before this fix, the test fails on all the reopen cases and on swallowed keys.
 
 ### 2026-10-29: Preferences dialog fits small screens (`fix-settings-dialog-size`)
 

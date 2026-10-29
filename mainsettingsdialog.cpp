@@ -204,8 +204,6 @@ MainSettingsDialog::MainSettingsDialog(QWidget *parent) :
 
     //settings are saved as they change; Close goes through closeEvent so the last edit is saved too
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &QWidget::close);
-
-    installEventFilter(this);
 }
 
 MainSettingsDialog::~MainSettingsDialog()
@@ -250,6 +248,13 @@ void MainSettingsDialog::fitToScreen()
     resize(wanted.boundedTo(maxSize));
 }
 
+void MainSettingsDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    //the dialog is reused, and closeEvent takes the filter off, so put it back every time it is shown
+    installEventFilter(this);
+}
+
 void MainSettingsDialog::closeEvent(QCloseEvent *event)
 {
     Q_UNUSED(event);
@@ -261,18 +266,14 @@ bool MainSettingsDialog::eventFilter(QObject *obj, QEvent *event)
 {
     if (event->type() == QEvent::KeyRelease) {
         QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
-        switch (keyEvent->key())
+        if (keyEvent->key() == Qt::Key_F1)
         {
-        case Qt::Key_F1:
             HelpWindow::getRef()->showHelp("preferences.md");
-            break;
+            return true;
         }
-        return true;
-    } else {
-        // standard event processing
-        return QObject::eventFilter(obj, event);
     }
-    return false;
+    //every other key, and every other event, gets standard processing
+    return QDialog::eventFilter(obj, event);
 }
 
 
