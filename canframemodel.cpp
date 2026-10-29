@@ -312,6 +312,10 @@ uint64_t CommFrameModel::getCommFrameVal(QVector<CommFrame> *frames, int row, Co
             temp += (static_cast<uint64_t>(frame.payload()[i]) << (56 - (8 * i)));
         //qDebug() << temp;
         return temp;
+    case Column::Slot:
+        return frame.isFlexRay() ? frame.frameId() : 0;
+    case Column::Cycle:
+        return frame.isFlexRay() ? frame.flexRayCycle() : 0;
     case Column::NUM_COLUMN:
         return 0;
     }
@@ -528,6 +532,8 @@ QVariant CommFrameModel::data(const QModelIndex &index, int role) const
         case Column::Bus:
         case Column::FrameCount:
         case Column::Length:
+        case Column::Slot:
+        case Column::Cycle:
             return Qt::AlignHCenter;
         default:
             return Qt::AlignLeft;
@@ -703,6 +709,14 @@ QVariant CommFrameModel::data(const QModelIndex &index, int role) const
             }
             return tempString;
 
+        case Column::Slot:
+            if (thisFrame.isFlexRay())
+                return QString::number(thisFrame.frameId(), 16).toUpper().rightJustified(3, '0');
+            return tempString;
+        case Column::Cycle:
+            if (thisFrame.isFlexRay())
+                return QString::number(thisFrame.flexRayCycle());
+            return tempString;
             default:
             return tempString;
         }
@@ -745,6 +759,10 @@ QVariant CommFrameModel::headerData(int section, Qt::Orientation orientation,
                 return QString(tr("DataDec"));
             else
                 return QString("");
+        case Column::Slot:
+            return QString(tr("Slot"));
+        case Column::Cycle:
+            return QString(tr("Cycle"));
         default:
             return QString("");
         }

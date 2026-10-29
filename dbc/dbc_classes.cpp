@@ -273,7 +273,7 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
         QString buildString;
         int startByte = startBit / 8;
         int bytes = signalSize / 8;
-        for (int x = 0; x < bytes; x++) buildString.append(frame.payload().constData()[startByte + x]);
+        for (int x = 0; x < bytes; x++) buildString.append(frame.flexRayDecodePayload().constData()[startByte + x]);
         outString = buildString;
         cachedValue = outString;
         return true;
@@ -282,7 +282,7 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
     if (valType == SIGNED_INT) isSigned = true;
     if (valType == SIGNED_INT || valType == UNSIGNED_INT)
     {
-        result = Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned);
+        result = Utility::processIntegerSignal(frame.flexRayDecodePayload(), startBit, signalSize, intelByteOrder, isSigned);
         endResult = ((double)result * factor) + bias;
         result = (int64_t)endResult;
         // if factor is an integer, we don't need the possibly human-unreadable float representation
@@ -295,19 +295,19 @@ bool DBC_SIGNAL::processAsText(const CommFrame &frame, QString &outString, bool 
         //that the bytes that make up the integer are instead treated as having made up
         //a 32 bit single precision float. That's evil incarnate but it is very fast and small
         //in terms of new code.
-        result = Utility::processIntegerSignal(frame.payload(), startBit, 32, intelByteOrder, false);
+        result = Utility::processIntegerSignal(frame.flexRayDecodePayload(), startBit, 32, intelByteOrder, false);
         endResult = (*((float *)(&result)) * factor) + bias; //look away! This is awful. I don't even know for sure if it works. Should test that.
     }
     else //double precision float
     {
-        if ( frame.payload().length() < 8 )
+        if ( frame.flexRayDecodePayload().length() < 8 )
         {
             result = 0;
             return false;
         }
         //like the above, this is rotten and evil and wrong in so many ways. Force
         //calculation of a 64 bit integer and then cast it into a double.
-        result = Utility::processIntegerSignal(frame.payload(), startBit, 64, intelByteOrder, false);
+        result = Utility::processIntegerSignal(frame.flexRayDecodePayload(), startBit, 64, intelByteOrder, false);
         endResult = (*((double *)(&result)) * factor) + bias;
     }
 
@@ -380,13 +380,13 @@ bool DBC_SIGNAL::processAsInt(const CommFrame &frame, int32_t &outValue)
     //if (!isSignalInMessage(frame)) return false;
 
     if (valType == SIGNED_INT) isSigned = true;
-    /*if ( static_cast<int>(frame.payload().length() * 8) <= (startBit + signalSize) )
+    /*if ( static_cast<int>(frame.flexRayDecodePayload().length() * 8) <= (startBit + signalSize) )
     {
         result = 0;
         return false;
     }*/
 
-    result = static_cast<int32_t>(Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned));
+    result = static_cast<int32_t>(Utility::processIntegerSignal(frame.flexRayDecodePayload(), startBit, signalSize, intelByteOrder, isSigned));
 
     double endResult = (result * factor) + bias;
     result = static_cast<int32_t>(endResult);
@@ -425,19 +425,19 @@ bool DBC_SIGNAL::processAsDouble(const CommFrame &frame, double &outValue)
     if (valType == SIGNED_INT) isSigned = true;
     if (valType == SIGNED_INT || valType == UNSIGNED_INT)
     {
-        if (lastByteOfSignal(startBit, signalSize, intelByteOrder) >= frame.payload().length())
+        if (lastByteOfSignal(startBit, signalSize, intelByteOrder) >= frame.flexRayDecodePayload().length())
         {
             result = 0;
             return false;
         }
-        result = Utility::processIntegerSignal(frame.payload(), startBit, signalSize, intelByteOrder, isSigned);
+        result = Utility::processIntegerSignal(frame.flexRayDecodePayload(), startBit, signalSize, intelByteOrder, isSigned);
         endResult = ((double)result * factor) + bias;
         result = (int64_t)endResult;
     }
     /*TODO: It should be noted that the below floating point has not even been tested. For shame! Test it!*/
     else if (valType == SP_FLOAT)
     {
-        if ( frame.payload().length() * 8 < (startBit + 32) )
+        if ( frame.flexRayDecodePayload().length() * 8 < (startBit + 32) )
         {
             result = 0;
             return false;
@@ -447,19 +447,19 @@ bool DBC_SIGNAL::processAsDouble(const CommFrame &frame, double &outValue)
         //that the bytes that make up the integer are instead treated as having made up
         //a 32 bit single precision float. That's evil incarnate but it is very fast and small
         //in terms of new code.
-        result = Utility::processIntegerSignal(frame.payload(), startBit, 32, false, false);
+        result = Utility::processIntegerSignal(frame.flexRayDecodePayload(), startBit, 32, false, false);
         endResult = (*((float *)(&result)) * factor) + bias;
     }
     else //double precision float
     {
-        if ( frame.payload().length() < 8 )
+        if ( frame.flexRayDecodePayload().length() < 8 )
         {
             result = 0;
             return false;
         }
         //like the above, this is rotten and evil and wrong in so many ways. Force
         //calculation of a 64 bit integer and then cast it into a double.
-        result = Utility::processIntegerSignal(frame.payload(), startBit, 64, false, false);
+        result = Utility::processIntegerSignal(frame.flexRayDecodePayload(), startBit, 64, false, false);
         endResult = (*((double *)(&result)) * factor) + bias;
     }
     cachedValue = endResult;

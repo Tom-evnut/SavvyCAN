@@ -12,6 +12,7 @@ README notice again (`e56f5a3`); they stay on `fork-ci` only.
 |---|---|---|
 | OBD-II Poller after the first car test: polls from its own thread (no more stalls behind a busy GUI); a bitmap answer that comes after discovery's wait is still followed; supported-PID answers in the generated DBC | `obd2-car-fixes` | not offered yet |
 | Connections can't be removed while another thread sends on them (lock on the connection list) | `obd2-car-fixes` | not offered yet |
+| FlexRay capture, phase 2: the cycle count is a first-class field (Slot and Cycle columns in the frame list) instead of payload byte 0; the stored payload is the true FlexRay payload, while DBC decoding still multiplexes on the cycle | `flexray-phase2-model` | not offered yet |
 | This file and the README notice | `fork-ci` only | removed upstream (`e56f5a3`) |
 
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
@@ -60,12 +61,13 @@ Everything here is in upstream `QT6WIP`.
 |---|---|
 | pico-flexray connection | "pico-flexray (FlexRay, USB)" in the new-connection dialog. Receive only: FR1 is bus 0, FR2 is bus 1, 10 Mbit/s, listen-only. Lists boards by serial number (`picoflex...`), reconnects when the board is plugged back in. Null frames are kept (type `FN`), payload CRC errors are marked (`F!`, record format 2 only). With record format 2 firmware, frames carry the board's frame-end timestamps. Needs libusb-1.0 at build time and, on Windows, the WinUSB driver (Zadig) |
 | Frame representation | `CommFrame::FLEXRAYDataFrame`: ID = 11-bit slot ID, payload = cycle count byte + up to 254 bytes, never CAN FD. The cycle count byte is what pico-flexray's and openpilot cabana's FlexRay DBC files multiplex on |
-| Frame list | Type `F` (`FN` null frame, `F!` CRC error); DBC interpretation and graphing include FlexRay data frames, overwrite mode also null-only slots |
+| Frame list | Type `F` (`FN` null frame, `F!` CRC error); Slot and Cycle columns show the FlexRay slot ID and cycle count (blank for non-FlexRay); DBC interpretation and graphing include FlexRay data frames, overwrite mode also null-only slots |
+| Cycle count | A first-class field (`CommFrame::flexRayCycle()`), not stuffed into the payload; the payload is the true FlexRay payload. DBC decoding uses `flexRayDecodePayload()` to rebuild the `[cycle][payload]` layout, so the pico-flexray / cabana DBCs still multiplex on the cycle. Native CSV keeps the on-disk `[cycle][payload]` data bytes, so older logs load unchanged |
 | FlexRay header details | Indicators, header CRC, frame CRC, the device's CRC check and whether the time is the device's are kept with each frame (`CommFrame::setFlexRayHeader()` and friends). Not shown or saved yet, apart from null/CRC error |
 | DBC decoding | Signals anywhere in a 255-byte message (was 64) |
 | Native CSV | `FR` in the flags column; rows up to 255 bytes; old files load unchanged |
 | Frame Info, Flow View, signal editor | Frames over 64 bytes no longer overflow their fixed buffers: per-byte statistics cover the first 8 bytes (Frame Info), the first 64 bytes are shown (Flow View, bit grids) |
-| Not done | Stock firmware sends no timestamps (frames get the PC's time per USB transfer); slot/cycle columns and saving the header details (roadmap phase 2); other log formats, a DBC `VFrameFormat` for FlexRay (FlexRay messages over 8 bytes load as CAN FD messages, which only matters for Send Frames and saving) |
+| Not done | Stock firmware sends no timestamps (frames get the PC's time per USB transfer); saving the header details to logs; other log formats, a DBC `VFrameFormat` for FlexRay (FlexRay messages over 8 bytes load as CAN FD messages, which only matters for Send Frames and saving) |
 
 ## Branches
 
@@ -103,6 +105,7 @@ Everything here is in upstream `QT6WIP`.
 | `log-notes-presets` | `fork-ci` | Marker presets: prepared marker texts with a key each, Next and Undo keys, panel buttons | in `QT6WIP` via `4fb1746` |
 | `flexray-pico` | `fork-ci` | FlexRay frames, the pico-flexray connection, and FlexRay sending via the firmware injector | in `QT6WIP` via `4fb1746` |
 | `flexray-phase1-capture` | `flexray-pico` | Device timestamps, null frames, FlexRay header details (roadmap phase 1) | in `QT6WIP` via `4fb1746` |
+| `flexray-phase2-model` | `fork-ci` | FlexRay cycle count a first-class field (not payload byte 0), Slot/Cycle columns, DBC decode via `flexRayDecodePayload()` (roadmap phase 2) | not offered yet |
 | `fork-ci` | upstream `QT6WIP` | Upstream plus the changes that aren't merged yet, this file and the README notice | - |
 
 ## Other pull requests `fork-ci` carried
@@ -192,6 +195,18 @@ waited 100 ms to 900 ms before the next one, so it managed about 8 requests/s in
   a connection does, and checks the filter hook and the bus of targetted frames, and replays the car's discovery
   answers (also late); `TestObd2Window` polls through a window whose poller is in its own thread; `TestObd2Dbc`
   decodes a bitmap answer. The new DBC decodes all 1,371 answers of the car log in cantools (strict).
+### 2026-10-28: FlexRay cycle count first-class, Slot/Cycle columns (`flexray-phase2-model`)
+
+Phase 2 of the [FlexRay reverse-engineering roadmap](docs/flexray-re-roadmap.md). The FlexRay cycle count is no
+longer kept as byte 0 of the payload; it is a first-class `CommFrame` field (`setFlexRayCycle()`/`flexRayCycle()`),
+and the stored payload is the true FlexRay payload, so the frame list, bit grids and the reverse-engineering tools
+no longer count the cycle byte as data. The frame list gains **Slot** and **Cycle** columns (blank for non-FlexRay
+frames). DBC decoding is unchanged for existing DBCs: `CommFrame::flexRayDecodePayload()` rebuilds the
+`[cycle][payload]` byte layout the pico-flexray and openpilot cabana DBCs multiplex on, feeding the (now
+authoritative) cycle field in as byte 0, so both those DBCs and a standard FlexRay DBC keep decoding. The injector
+(`piSendFrame`) now takes the cycle from the field. Native CSV still writes the `[cycle][payload]` data bytes, so
+older FlexRay logs load unchanged and new ones are byte-for-byte the same on disk. Branched off `fork-ci`; builds
+with and without libusb; the `flexray` and `picoflexrayinject` test suites updated for the new model.
 
 ### 2026-10-26: marker presets (`log-notes-presets`)
 

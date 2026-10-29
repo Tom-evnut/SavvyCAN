@@ -58,7 +58,15 @@ The highest-value change, and it needs a small firmware fork plus a parser updat
 - **Done when:** captured frames carry device time (sub-cycle resolution), null frames are visible,
   and CRC/indicator fields survive into the model.
 
-### Phase 2 — FlexRay-aware frame model and UI
+### Phase 2 — FlexRay-aware frame model and UI ✅ done (`flexray-phase2-model`, 2026-10-28)
+
+Implemented: the cycle count is a first-class `CommFrame` field (indicators / CRC flags were already added in
+phase 1); the stored payload is the true FlexRay payload; the frame list has **Slot** and **Cycle** columns; DBC
+decoding rebuilds the `[cycle][payload]` layout via `CommFrame::flexRayDecodePayload()`, so the pico-flexray /
+cabana DBCs multiplex on the (now authoritative) cycle field unchanged; native CSV keeps the on-disk
+`[cycle][payload]` bytes so older logs load unchanged. The injector takes the cycle from the field.
+
+Original plan:
 
 - **`CommFrame` FlexRay metadata:** add optional fields for cycle, indicators, null-frame flag,
   header-CRC-valid and frame-CRC-valid — instead of stuffing cycle into payload byte 0. Keep

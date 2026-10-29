@@ -2273,8 +2273,11 @@ bool FrameFileIO::isNativeCSVFile(QString filename)
 //one row of the native CSV format (see above), including the line end
 static QByteArray nativeCSVRow(const CommFrame &frame)
 {
-    const unsigned char *data = reinterpret_cast<const unsigned char *>(frame.payload().constData());
-    int dataLen = frame.payload().length();
+    //FlexRay rows carry the cycle count as data byte 0 then the payload, so the on-disk format is unchanged
+    //and older files keep loading; the cycle is stored as a first-class field in memory (see loadNativeCSVFile).
+    const QByteArray payloadBytes = frame.isFlexRay() ? frame.flexRayDecodePayload() : frame.payload();
+    const unsigned char *data = reinterpret_cast<const unsigned char *>(payloadBytes.constData());
+    int dataLen = payloadBytes.length();
     QByteArray row;
     row.append(QString::number(frame.timeStamp().microSeconds()).toUtf8());
     row.append(',');
@@ -2409,7 +2412,17 @@ bool FrameFileIO::loadNativeCSVFile(QString filename, QVector<CommFrame>* frames
                     for (int c = 0; c < lng; c++) bytes[c] = 0;
                     for (int d = 0; d < lng; d++)
                         bytes[d] = static_cast<char>(tokens[6 + d].toInt(nullptr, 16));
-                    thisFrame.setPayload(bytes);
+                    if (flexRay)
+                    {
+                        //data byte 0 is the cycle count, kept as a first-class field; the rest is the payload
+                        if (!bytes.isEmpty())
+                        {
+                            thisFrame.setFlexRayCycle(static_cast<quint8>(bytes.at(0)));
+                            thisFrame.setPayload(bytes.mid(1));
+                        }
+                        else thisFrame.setPayload(bytes);
+                    }
+                    else thisFrame.setPayload(bytes);
                     if (!flexRay && (flags.startsWith("FD") || lng > 8))
                     {
                         thisFrame.setFlexibleDataRateFormat(true);
