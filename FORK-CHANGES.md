@@ -16,6 +16,7 @@ README notice again (`e56f5a3`); they stay on `fork-ci` only.
 | Preferences dialog fits small screens: settings in a scroll area, Close button always visible, size capped to the screen | `fix-settings-dialog-size` | not offered yet |
 | Every window fits the screen it opens on: size capped and kept on screen each time it is shown (saved sizes from a bigger monitor too); the six windows too tall for a laptop scroll, with their buttons kept visible | `fix-window-sizing` | not offered yet |
 | Preferences dialog: F1 help works after the dialog has been closed and reopened, and other key releases are no longer swallowed | `fix-settings-f1-help` | not offered yet |
+| qmake build (`SavvyCAN.pro`) links on Linux again: no stray Windows OpenGL library, and the handler factory, crop log and search window sources it was missing | `fix-qmake-link` | not offered yet |
 | This file and the README notice | `fork-ci` only | removed upstream (`e56f5a3`) |
 
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
@@ -213,6 +214,16 @@ scaling) its bottom was off screen and the lowest settings could not be reached.
   and 150 %) and 800x600 screens. On each, the dialog and its Close button lie inside the screen's available area,
   all 38 setting widgets can be scrolled fully into view, and Close saves a changed checkbox and an unfinished line
   edit. Builds with qmake and CMake.
+
+### 2026-10-29: qmake build links on Linux again (`fix-qmake-link`)
+
+- **Stray OpenGL link:** `SavvyCAN.pro` had a second `LIBS += libopengl32` outside any `win32` block (from upstream
+  `6190e51`), so the Linux link looked for a library that only exists on Windows. It's gone; the `win32-msvc*` and
+  `win32-g++` blocks still link OpenGL on Windows.
+- **Missing sources:** `bus_protocols/handler_factory`, `croplogdialog` and `re/searchwindow` (with
+  `ui/searchwindow.ui`) came in with upstream merges but were only added to `CMakeLists.txt`, so the qmake link
+  failed on `HandlerFactory::createUDSHandler()` and the crop log and search windows. They're in `SavvyCAN.pro` now,
+  which again builds the same sources as `CMakeLists.txt`.
 
 ### 2026-10-29: synced with upstream `QT6WIP` (`e56f5a3`)
 
