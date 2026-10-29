@@ -7,6 +7,7 @@
 #include <QRegularExpression>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QScreen>
 #include "simplecrypt.h"
 
 //using this simple encryption library to obfuscate stored password a bit. It's not super secure but better than
@@ -201,12 +202,52 @@ MainSettingsDialog::MainSettingsDialog(QWidget *parent) :
     connect(ui->spinBytesPerLine, SIGNAL(valueChanged(int)), this, SLOT(updateSettings()));
     connect(ui->cbShowSendPanel, SIGNAL(toggled(bool)), this, SLOT(updateSettings()));
 
+    //settings are saved as they change; Close goes through closeEvent so the last edit is saved too
+    connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &QWidget::close);
+
     installEventFilter(this);
 }
 
 MainSettingsDialog::~MainSettingsDialog()
 {
     delete ui;
+}
+
+void MainSettingsDialog::setVisible(bool visible)
+{
+    //size before QDialog::setVisible so it centers the dialog at the size it will have
+    if (visible) fitToScreen();
+    QDialog::setVisible(visible);
+}
+
+//The settings sit in a scroll area, so the dialog can be smaller than its contents. Never let it start
+//bigger than the screen it opens on, or the bottom of it (and the Close button) ends up off screen.
+void MainSettingsDialog::fitToScreen()
+{
+    QScreen *scr = screen();
+    if (!scr) return;
+
+    //availableGeometry leaves out the taskbar, but the title bar and frame have to fit as well. Their size is
+    //only known once the dialog has been shown, so guess until then.
+    QSize frame = frameGeometry().size() - geometry().size();
+    if (frame.width() <= 0 || frame.height() <= 0) frame = QSize(16, 40);
+    const QSize maxSize = scr->availableGeometry().size() - frame;
+
+    QSize wanted = size();
+    if (!sizedToContents)
+    {
+        //the first time, make it big enough to show every setting without scrolling if the screen allows it.
+        //Size hints are only right once the style has been applied, and while the dialog is hidden the
+        //layouts (nested ones included) keep the hints they cached before that, as QScrollArea::setWidget
+        //asks early. Drop them all so the contents are measured as they will be shown.
+        ensurePolished();
+        for (QWidget *w : findChildren<QWidget *>()) w->updateGeometry();
+        for (QLayout *l : findChildren<QLayout *>()) l->invalidate();
+        const QSize aroundScrollArea = sizeHint() - ui->scrollArea->sizeHint();
+        wanted = wanted.expandedTo(ui->scrollAreaWidgetContents->sizeHint() + aroundScrollArea);
+        sizedToContents = true;
+    }
+    resize(wanted.boundedTo(maxSize));
 }
 
 void MainSettingsDialog::closeEvent(QCloseEvent *event)

@@ -13,6 +13,7 @@ README notice again (`e56f5a3`); they stay on `fork-ci` only.
 | OBD-II Poller after the first car test: polls from its own thread (no more stalls behind a busy GUI); a bitmap answer that comes after discovery's wait is still followed; supported-PID answers in the generated DBC | `obd2-car-fixes` | not offered yet |
 | Connections can't be removed while another thread sends on them (lock on the connection list) | `obd2-car-fixes` | not offered yet |
 | FlexRay capture, phase 2: the cycle count is a first-class field (Slot and Cycle columns in the frame list) instead of payload byte 0; the stored payload is the true FlexRay payload, while DBC decoding still multiplexes on the cycle | `flexray-phase2-model` | not offered yet |
+| Preferences dialog fits small screens: settings in a scroll area, Close button always visible, size capped to the screen | `fix-settings-dialog-size` | not offered yet |
 | This file and the README notice | `fork-ci` only | removed upstream (`e56f5a3`) |
 
 **Builds:** every push to `fork-ci` builds a Linux x64 AppImage and a Windows x64 package. Download them from the
@@ -150,6 +151,24 @@ LilyGO T-2CAN-FD hardware.
 ---
 
 ## Change log
+
+### 2026-10-29: Preferences dialog fits small screens (`fix-settings-dialog-size`)
+
+The Preferences dialog opened at 965x852 whatever the screen, so on a laptop (1366x768, or 1920x1080 at 125–150 %
+scaling) its bottom was off screen and the lowest settings could not be reached.
+
+- **Scroll area:** both columns of settings are now in a scroll area. A new Close button and the "some settings need
+  a restart" note sit below it, so they are always visible. Close saves the same way closing the window does.
+- **Size capped to the screen:** the first time it opens, the dialog sizes itself to show every setting without
+  scrolling (965x857 on 1920x1080 at 100 %). It is never bigger than the available area of its screen, minus the
+  title bar and frame.
+- **Better balance:** the Font and Flowview groups moved from the left column to the right one, so the two columns
+  are about the same height.
+- **Unchanged:** every setting, widget name and `QSettings` key, and settings are still saved as soon as they change.
+- **Checked** with a small harness under `QT_QPA_PLATFORM=offscreen` on 1366x768 (100 % and 125 %), 1920x1080 (100 %
+  and 150 %) and 800x600 screens. On each, the dialog and its Close button lie inside the screen's available area,
+  all 38 setting widgets can be scrolled fully into view, and Close saves a changed checkbox and an unfinished line
+  edit. Builds with qmake and CMake.
 
 ### 2026-10-29: synced with upstream `QT6WIP` (`e56f5a3`)
 

@@ -15,6 +15,7 @@ class MainSettingsDialog : public QDialog
 public:
     explicit MainSettingsDialog(QWidget *parent = 0);
     ~MainSettingsDialog();
+    void setVisible(bool visible) override;
 
 signals:
     void updatedSettings();
@@ -24,8 +25,10 @@ public slots:
 
 private:
     Ui::MainSettingsDialog *ui;
+    bool sizedToContents = false;
 
     void populateLanguageCombo();
+    void fitToScreen();
     void closeEvent(QCloseEvent *event);
     bool eventFilter(QObject *obj, QEvent *event);
 };
