@@ -25,9 +25,12 @@ namespace
 Obd2Poller::Obd2Poller(ISOTP_HANDLER *isotp, Clock clock, QObject *parent)
     : QObject(parent), isotp(isotp), clock(clock)
 {
+    qRegisterMetaType<Obd2Poller::State>();
+    qRegisterMetaType<QList<OBD2::Value>>();
     elapsed.start();
     if (!this->clock) this->clock = [this]() { return elapsed.elapsed(); };
 
+    timer.setParent(this); //so it moves to the poller's thread with it
     timer.setTimerType(Qt::PreciseTimer);
     timer.setInterval(SERVICE_INTERVAL_MS);
     connect(&timer, &QTimer::timeout, this, &Obd2Poller::service);
@@ -39,6 +42,50 @@ Obd2Poller::Obd2Poller(ISOTP_HANDLER *isotp, Clock clock, QObject *parent)
 Obd2Poller::~Obd2Poller()
 {
     disconnect(isotpConnection);
+    if (frameFilterHook && filterRegistered) frameFilterHook(filterBus, filterId, filterMask, false);
+}
+
+void Obd2Poller::setFrameFilterHook(FrameFilterHook hook)
+{
+    if (frameFilterHook && filterRegistered) frameFilterHook(filterBus, filterId, filterMask, false);
+    filterRegistered = false;
+    frameFilterHook = hook;
+    refreshFrameFilter();
+}
+
+//Registered again on every discovery, start and request too, since a connection opened after the poller was made
+//wouldn't have it
+void Obd2Poller::refreshFrameFilter()
+{
+    if (!frameFilterHook) return;
+    if (filterRegistered) frameFilterHook(filterBus, filterId, filterMask, false);
+    filterBus = busNum;
+    filterId = (addressMode == Addressing::Standard11Bit) ? REPLY_BASE_11BIT : REPLY_BASE_29BIT;
+    filterMask = (addressMode == Addressing::Standard11Bit) ? REPLY_MASK_11BIT : REPLY_MASK_29BIT;
+    frameFilterHook(filterBus, filterId, filterMask, true);
+    filterRegistered = true;
+}
+
+void Obd2Poller::gotTargettedFrame(const CommFrame &frame)
+{
+    CommFrame global = frame;
+    global.setBus(busNum); //the filter is only registered for this bus
+    isotp->rapidFrames(QVector<CommFrame>{global});
+}
+
+Obd2Poller::State Obd2Poller::state() const
+{
+    State s;
+    s.running = running;
+    s.discovering = discovering;
+    s.ecus = ecuList;
+    s.stats = statistics;
+    return s;
+}
+
+void Obd2Poller::publish()
+{
+    emit stateChanged(state());
 }
 
 void Obd2Poller::configureHandler()
@@ -51,12 +98,14 @@ void Obd2Poller::configureHandler()
     else isotp->addFilter(busNum, REPLY_BASE_29BIT, REPLY_MASK_29BIT);
     isotp->setFlowCtrl(true); //Mode 09 replies span several frames
     isotp->setReception(true);
+    refreshFrameFilter();
 }
 
 void Obd2Poller::reset()
 {
     queue.clear();
     ecuList.clear();
+    bitmapsAsked.clear();
     outstanding = Outstanding();
     discovering = false;
 }
@@ -67,6 +116,7 @@ void Obd2Poller::setBus(int bus)
     busNum = bus;
     reset();
     configureHandler();
+    publish();
 }
 
 void Obd2Poller::setAddressing(Addressing mode)
@@ -75,6 +125,7 @@ void Obd2Poller::setAddressing(Addressing mode)
     addressMode = mode;
     reset();
     configureHandler();
+    publish();
 }
 
 void Obd2Poller::setReplyTimeout(int ms)
@@ -127,6 +178,7 @@ bool Obd2Poller::isReplyId(quint32 id) const
 void Obd2Poller::discover()
 {
     ecuList.clear();
+    bitmapsAsked.clear();
     //drop discovery requests from an earlier discovery, keep one-off requests
     for (int i = queue.size() - 1; i >= 0; i--)
     {
@@ -134,18 +186,23 @@ void Obd2Poller::discover()
     }
     queue.prepend({0, OBD2::mode01Request(0x00), Kind::Discovery});
     discovering = true;
+    refreshFrameFilter();
     service();
+    publish();
 }
 
 void Obd2Poller::start()
 {
     running = true;
+    refreshFrameFilter();
     service();
+    publish();
 }
 
 void Obd2Poller::stop()
 {
     running = false;
+    publish();
 }
 
 bool Obd2Poller::readVin(quint32 ecuReplyId)
@@ -163,6 +220,7 @@ bool Obd2Poller::request(quint32 ecuReplyId, const QByteArray &payload)
     }
     if (ecuReplyId != 0 && !isReplyId(ecuReplyId)) return false;
     queue.append({ecuReplyId, payload, Kind::OneOff});
+    refreshFrameFilter();
     service();
     return true;
 }
@@ -179,6 +237,7 @@ void Obd2Poller::service()
             statistics.timeouts++;
             emit requestTimedOut(outstanding.request.ecuReplyId, outstanding.request.payload);
             emit statsChanged();
+            publish();
         }
         finishOutstanding();
     }
@@ -254,6 +313,7 @@ bool Obd2Poller::sendRequest(const Request &req, qint64 now)
 
     isotp->sendISOTPFrame(busNum, static_cast<int>(requestIdFor(req.ecuReplyId)), req.payload);
     emit statsChanged();
+    publish();
     return true;
 }
 
@@ -273,6 +333,7 @@ void Obd2Poller::checkDiscoveryDone()
         if (req.kind == Kind::Discovery || req.kind == Kind::Bitmap) return;
     }
     discovering = false;
+    publish(); //before discoveryFinished, so a window in another thread has the ECUs when it hears of it
     emit discoveryFinished();
 }
 
@@ -294,6 +355,7 @@ void Obd2Poller::countReply(qint64 now)
     while (!replyTimes.isEmpty() && now - replyTimes.first() >= 1000) replyTimes.removeFirst();
     statistics.repliesLastSecond = replyTimes.size();
     emit statsChanged();
+    publish();
 }
 
 bool Obd2Poller::replyMatchesOutstanding(quint32 ecuReplyId, const QByteArray &payload) const
@@ -367,9 +429,17 @@ void Obd2Poller::handleMode01(quint32 ecuReplyId, const QByteArray &payload)
             }
             std::sort(ecu.supportedPids.begin(), ecu.supportedPids.end());
 
+            //Follow the bitmaps of an ECU that took part in discovery, also when its answer comes after the wait for
+            //it ran out and discovery had finished (a car test lost the 0x40 bitmap that way): discovery goes on.
+            if (discovering) bitmapsAsked[ecuReplyId];
             int next = reply.pid + 0x20;
-            if (discovering && next <= 0xE0 && supported.contains(static_cast<quint8>(next)))
+            if (bitmapsAsked.contains(ecuReplyId) && next <= 0xE0 && supported.contains(static_cast<quint8>(next))
+                && !bitmapsAsked[ecuReplyId].contains(static_cast<quint8>(next)))
+            {
+                bitmapsAsked[ecuReplyId].insert(static_cast<quint8>(next));
                 queue.append({ecuReplyId, OBD2::mode01Request(static_cast<quint8>(next)), Kind::Bitmap});
+                discovering = true;
+            }
         }
 
         QList<OBD2::Value> values;
@@ -398,6 +468,7 @@ void Obd2Poller::handleNegative(quint32 ecuReplyId, const QByteArray &payload, q
     statistics.negativeReplies++;
     emit negativeReply(ecuReplyId, service, code);
     emit statsChanged();
+    publish();
     if (!forOutstanding) return;
 
     const QByteArray &req = outstanding.request.payload;

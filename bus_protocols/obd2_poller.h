@@ -3,6 +3,7 @@
 
 #include <QByteArray>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QSet>
@@ -26,6 +27,12 @@
  * The poller sets the ISO-TP handler's filters, flow control and reception, so give it a handler of its own. It
  * doesn't take ownership of the handler. Timing comes from the clock passed in (milliseconds, only differences
  * matter); an internal timer calls service() while there's work, and tests can call it themselves instead.
+ *
+ * Running it in a thread of its own: in SavvyCAN, received frames reach the GUI thread in 20 ms batches and wait
+ * there whenever the GUI is busy, which held requests back by 100 ms to 1 s in a car test. So the poller (with its
+ * handler, made without a connection to the frame batches) can be moved to a worker thread. Its answers then come
+ * straight from the connection's thread through gotTargettedFrame(), for the filter the frame filter hook registers.
+ * State for a window in another thread goes out with stateChanged().
  */
 class Obd2Poller : public QObject
 {
@@ -63,6 +70,18 @@ public:
         int repliesLastSecond = 0;
     };
 
+    //Everything a window shows, copied so it can go to another thread
+    struct State
+    {
+        bool running = false;
+        bool discovering = false;
+        QList<Ecu> ecus;
+        Stats stats;
+    };
+
+    //Adds (add true) or removes the filter that sends the replies on this bus to gotTargettedFrame()
+    using FrameFilterHook = std::function<void(int bus, quint32 id, quint32 mask, bool add)>;
+
     static const int DEFAULT_REPLY_TIMEOUT_MS = 50;     //P2 of ISO 15765-4
     static const int DEFAULT_PENDING_TIMEOUT_MS = 5000; //P2* after a "response pending" reply
     static const int DEFAULT_MAX_REQUEST_RATE = 20;     //requests a second
@@ -79,11 +98,13 @@ public:
     void setPendingTimeout(int ms);
     void setMaxRequestRate(int perSecond);
     void setPollList(const QList<PollItem> &items);
+    void setFrameFilterHook(FrameFilterHook hook);
 
     const QList<Ecu> &ecus() const { return ecuList; }
     const Stats &stats() const { return statistics; }
     bool isRunning() const { return running; }
     bool isDiscovering() const { return discovering; }
+    State state() const;
 
     static bool isServiceAllowed(quint8 service);
     quint32 functionalRequestId() const;
@@ -100,6 +121,8 @@ public:
 
 public slots:
     void service();
+    //A reply from the connection's thread (CANConnection's targetted frames: the bus is the connection's own)
+    void gotTargettedFrame(const CommFrame &frame);
 
 signals:
     void ecuFound(quint32 ecuReplyId);
@@ -111,6 +134,7 @@ signals:
     void negativeReply(quint32 ecuReplyId, quint8 service, quint8 code);
     void replyReceived(quint32 ecuReplyId, const QByteArray &payload); //every reply, positive or negative
     void statsChanged();
+    void stateChanged(const Obd2Poller::State &state);
 
 private:
     enum class Kind { Discovery, Bitmap, Poll, OneOff };
@@ -131,6 +155,8 @@ private:
     };
 
     void configureHandler();
+    void refreshFrameFilter();
+    void publish();
     void reset();
     void gotISOTPMessage(const ISOTP_MESSAGE &msg);
     void handleMode01(quint32 ecuReplyId, const QByteArray &payload);
@@ -150,6 +176,11 @@ private:
     QElapsedTimer elapsed;
     QTimer timer;
     QMetaObject::Connection isotpConnection;
+    FrameFilterHook frameFilterHook;
+    bool filterRegistered = false;
+    int filterBus = 0;
+    quint32 filterId = 0;
+    quint32 filterMask = 0;
 
     int busNum = 0;
     Addressing addressMode = Addressing::Standard11Bit;
@@ -164,6 +195,7 @@ private:
 
     QList<Request> queue;       //discovery and one-off requests, sent before polling
     QList<Ecu> ecuList;
+    QHash<quint32, QSet<quint8>> bitmapsAsked; //per ECU that took part in discovery: the bitmap PIDs asked for
     Outstanding outstanding;
     bool running = false;
     bool discovering = false;

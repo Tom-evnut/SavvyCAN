@@ -37,6 +37,11 @@ int dbcStartBit(const Field &field)
     return (msb / 8) * 8 + (7 - msb % 8);
 }
 
+QString dbcBitmapSignalName(quint8 pid)
+{
+    return "PID_" + QString("%1").arg(pid, 2, 16, QChar('0')).toUpper() + "_SupportedPids";
+}
+
 QString dbcMessageName(quint32 ecuReplyId)
 {
     return "OBD2_ECU_" + QString("%1").arg(ecuReplyId, ecuReplyId > 0x7FF ? 8 : 3, 16, QChar('0')).toUpper();
@@ -63,6 +68,14 @@ QString makeDbc(const QList<quint32> &ecuReplyIds)
 
         for (const PidInfo &info : mode01Pids())
         {
+            if (isSupportBitmapPid(info.pid))
+            {
+                QString name = dbcBitmapSignalName(info.pid);
+                lines << QString(" SG_ %1 m%2 : 31|32@0+ (1,0) [0|4294967295] \"\" Vector__XXX").arg(name).arg(info.pid);
+                muxValues << QString("SG_MUL_VAL_ %1 %2 PID %3-%3;").arg(id).arg(name).arg(info.pid);
+                comments << QString("CM_ SG_ %1 %2 %3;").arg(id).arg(name).arg(quoted(info.name + ", one bit per PID"));
+                continue;
+            }
             for (const Field &field : info.fields)
             {
                 QString name = dbcSignalName(info.pid, field);

@@ -17,6 +17,7 @@ private slots:
     void test29BitIds();
     void testSaveAndReload();
     void testSignalsInTheLastBytes();
+    void testSupportedPidBitmaps();
 
 private:
     std::unique_ptr<DBCFile> load(const QString &text);
@@ -111,7 +112,11 @@ void TestObd2Dbc::testLoads()
 
     int fields = 0;
     for (const OBD2::PidInfo &info : OBD2::mode01Pids()) fields += info.fields.size();
-    QCOMPARE(msg->sigHandler->getCount(), fields + 2); //plus Service and PID
+    int bitmaps = 0;
+    for (const OBD2::PidInfo &info : OBD2::mode01Pids())
+        if (OBD2::isSupportBitmapPid(info.pid)) bitmaps++;
+    QCOMPARE(bitmaps, 8);
+    QCOMPARE(msg->sigHandler->getCount(), fields + bitmaps + 2); //plus Service and PID
 
     DBC_SIGNAL *pid = msg->sigHandler->findSignalByName("PID");
     QVERIFY(pid->isMultiplexor);
@@ -279,6 +284,25 @@ void TestObd2Dbc::testSignalsInTheLastBytes()
     QVERIFY(!motorola.processAsDouble(shortFrame, y));
     motorola.startBit = 51; //bits 51..48, all in byte 6
     QVERIFY(motorola.processAsDouble(shortFrame, y));
+}
+
+// A discovery answer decodes too (strict tools refuse a log with multiplexor values the DBC doesn't know)
+void TestObd2Dbc::testSupportedPidBitmaps()
+{
+    QCOMPARE(OBD2::dbcBitmapSignalName(0x00), QString("PID_00_SupportedPids"));
+    QCOMPARE(OBD2::dbcBitmapSignalName(0xA0), QString("PID_A0_SupportedPids"));
+
+    auto dbc = load(OBD2::makeDbc({0x7E8}));
+    DBC_MESSAGE *msg = dbc->messageHandler->findMsgByID(0x7E8);
+    CommFrame frame = reply(0x7E8, 0x00, QByteArray::fromHex("BE1FA813"));
+    DBC_SIGNAL *bitmap = msg->sigHandler->findSignalByName("PID_00_SupportedPids");
+    QVERIFY(bitmap);
+    QVERIFY(bitmap->isSignalInMessage(frame));
+    double y = 0;
+    QVERIFY(bitmap->processAsDouble(frame, y));
+    QCOMPARE(y, double(0xBE1FA813u));
+    QVERIFY(!msg->sigHandler->findSignalByName("PID_20_SupportedPids")->isSignalInMessage(frame));
+    QVERIFY(!msg->sigHandler->findSignalByName("PID_0C_EngineSpeed")->isSignalInMessage(frame));
 }
 
 QTEST_MAIN(TestObd2Dbc)

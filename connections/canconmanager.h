@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMutex>
+#include <QReadWriteLock>
 
 #include "canconnection.h"
 
@@ -79,6 +80,10 @@ private:
 
     static CANConManager*  mInstance;
     QList<CANConnection*>  mConns;
+    //mConns changes only in the GUI thread (add, remove, replace: write lock). The OBD-II poller's thread sends and
+    //sets targetted frame filters too, so those take the read lock: a connection can't be removed (and deleted)
+    //while another thread is using it.
+    QReadWriteLock         mConnsLock;
     QTimer                 mTimer;
     QTimer                 mAutoReconnectTimer;   // separate 5-second main-thread timer
     QElapsedTimer          mElapsedTimer;

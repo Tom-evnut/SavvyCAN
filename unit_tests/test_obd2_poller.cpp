@@ -29,6 +29,12 @@ private slots:
     void testIgnoresOtherFrames();
     void testStop();
     void testRepliesLastSecond();
+    void testFrameFilterHook();
+    void testTargettedFrameBus();
+    void testStateSnapshot();
+    void testRunsInItsOwnThread();
+    void testDiscoveryWithTheCarsAnswers();
+    void testLateBitmapAnswer();
 
 signals:
     void framesReceived(void*, const QVector<CommFrame>& frames);
@@ -503,6 +509,173 @@ void TestObd2Poller::testRepliesLastSecond()
     advance(1000);
     receive(0x7E8, "04410C1AF8");
     QCOMPARE(poller->stats().repliesLastSecond, 1);
+}
+
+// The filter that brings the replies straight from a connection's thread follows the bus and addressing
+void TestObd2Poller::testFrameFilterHook()
+{
+    QStringList calls;
+    auto hook = [&](int bus, quint32 id, quint32 mask, bool add) {
+        calls.append(QString("%1 %2 %3 %4").arg(add ? "add" : "remove").arg(bus).arg(id, 0, 16).arg(mask, 0, 16));
+    };
+    poller->setFrameFilterHook(hook);
+    QCOMPARE(calls, QStringList({"add 0 7e8 7f8"}));
+
+    calls.clear();
+    poller->setBus(1);
+    QCOMPARE(calls, QStringList({"remove 0 7e8 7f8", "add 1 7e8 7f8"}));
+
+    calls.clear();
+    poller->setAddressing(Obd2Poller::Addressing::Extended29Bit);
+    QCOMPARE(calls, QStringList({"remove 1 7e8 7f8", "add 1 18daf100 1fffff00"}));
+
+    //again on discovery and start: a connection opened since then wouldn't have it
+    calls.clear();
+    poller->discover();
+    QCOMPARE(calls, QStringList({"remove 1 18daf100 1fffff00", "add 1 18daf100 1fffff00"}));
+
+    calls.clear();
+    poller.reset();
+    QCOMPARE(calls, QStringList({"remove 1 18daf100 1fffff00"}));
+}
+
+// A targetted frame carries the connection's own bus number; the poller only gets its own bus's
+void TestObd2Poller::testTargettedFrameBus()
+{
+    QList<quint8> pids;
+    connect(poller.get(), &Obd2Poller::pidUpdated, this,
+            [&](quint32, quint8 pid, const QByteArray &, const QList<OBD2::Value> &) { pids.append(pid); });
+    poller->setBus(1);
+    poller->setPollList({{0x7E8, 0x0C, 0}});
+    poller->start();
+    QCOMPARE(sentFrames.back().getBus(), quint8(1));
+
+    CommFrame frame;
+    frame.setBus(0); //bus 0 of the second connection, say
+    frame.setFrameId(0x7E8);
+    frame.setPayload(QByteArray::fromHex("04410C1AF8555555"));
+    poller->gotTargettedFrame(frame);
+    QCOMPARE(pids, QList<quint8>({0x0C}));
+}
+
+void TestObd2Poller::testStateSnapshot()
+{
+    QList<Obd2Poller::State> states;
+    connect(poller.get(), &Obd2Poller::stateChanged, this, [&](const Obd2Poller::State &s) { states.append(s); });
+    int ecusAtFinish = -1;
+    connect(poller.get(), &Obd2Poller::discoveryFinished, this, [&]() { ecusAtFinish = states.last().ecus.size(); });
+
+    poller->discover();
+    QVERIFY(!states.isEmpty());
+    QVERIFY(states.last().discovering);
+    receive(0x7E8, "06410080000000");
+    advance(50);
+    QCOMPARE(ecusAtFinish, 1); //the state with the ECU came before discoveryFinished
+    QVERIFY(!states.last().discovering);
+
+    poller->setPollList({{0x7E8, 0x0D, 0}});
+    poller->start();
+    QVERIFY(states.last().running);
+    QCOMPARE(states.last().stats.requests, 2);
+    poller->stop();
+    QVERIFY(!states.last().running);
+}
+
+// The way SavvyCAN runs it: the poller in a worker thread, replies posted to it by name from another thread
+void TestObd2Poller::testRunsInItsOwnThread()
+{
+    qRegisterMetaType<CommFrame>("CommFrame"); //CANConnection does this in SavvyCAN
+
+    QMutex sentMutex;
+    QList<CommFrame> sent;
+    auto *handler = new ISOTP_HANDLER(dummyFrames,
+        [&](const CommFrame &frame) { QMutexLocker l(&sentMutex); sent.append(frame); },
+        []() -> int { return 1; },
+        ISOTP_HANDLER::PendingConnection<ISOTP_HANDLER>());
+    auto *threaded = new Obd2Poller(handler); //the real clock
+    handler->setParent(threaded);
+
+    QThread thread;
+    threaded->moveToThread(&thread);
+    thread.start();
+
+    QList<Obd2Poller::State> states;
+    bool finished = false;
+    connect(threaded, &Obd2Poller::stateChanged, this, [&](const Obd2Poller::State &s) {
+        QCOMPARE(QThread::currentThread(), this->thread()); //queued to the test's thread
+        states.append(s);
+    });
+    connect(threaded, &Obd2Poller::discoveryFinished, this, [&]() { finished = true; });
+
+    QMetaObject::invokeMethod(threaded, [threaded]() { threaded->discover(); }, Qt::QueuedConnection);
+    auto sentCount = [&]() { QMutexLocker l(&sentMutex); return sent.size(); };
+    QTRY_COMPARE(sentCount(), 1);
+    {
+        QMutexLocker l(&sentMutex);
+        QCOMPARE(sent[0].frameId(), 0x7DFu);
+    }
+
+    CommFrame reply;
+    reply.setFrameId(0x7E8);
+    reply.setPayload(QByteArray::fromHex("0641008000000055"));
+    reply.setReceived(true);
+    QVERIFY(QMetaObject::invokeMethod(threaded, "gotTargettedFrame", Qt::QueuedConnection, Q_ARG(CommFrame, reply)));
+
+    QTRY_VERIFY(finished); //after the 50 ms wait, run by the poller's own timer in its thread
+    QCOMPARE(states.last().ecus.size(), 1);
+    QCOMPARE(states.last().ecus[0].supportedPids, QList<quint8>({0x01}));
+    QVERIFY(!states.last().discovering);
+
+    QMetaObject::invokeMethod(threaded, [threaded]() { delete threaded; }, Qt::BlockingQueuedConnection);
+    thread.quit();
+    QVERIFY(thread.wait(5000));
+}
+
+// The Astra J's own answers from the first car test: its 0x20 bitmap says 0x40 is supported too
+void TestObd2Poller::testDiscoveryWithTheCarsAnswers()
+{
+    poller->setBus(0);
+    poller->setMaxRequestRate(20);
+    poller->discover();
+    receive(0x7E8, "064100BE3FB813AA");
+    advance(50);
+    QCOMPARE(sentFrames.back().payload().left(3), QByteArray::fromHex("020120"));
+    receive(0x7E8, "0641208007A011AA");
+    for (int i = 0; i < 30 && sentFrames.size() < 3; i++) advance(2);
+    QCOMPARE(sentFrames.size(), 3u);
+    QCOMPARE(sentFrames.back().payload().left(3), QByteArray::fromHex("020140"));
+    QVERIFY(poller->isDiscovering());
+}
+
+// A bitmap answer after the wait for it ran out (the poller saw it late) still continues discovery
+void TestObd2Poller::testLateBitmapAnswer()
+{
+    int finished = 0;
+    connect(poller.get(), &Obd2Poller::discoveryFinished, this, [&]() { finished++; });
+
+    poller->discover();
+    receive(0x7E8, "064100BE3FB813AA");
+    advance(50);
+    QCOMPARE(sentPayload(1).left(3), QByteArray::fromHex("020120"));
+    advance(50); //the wait for the 0x20 answer runs out
+    QCOMPARE(finished, 1);
+    QVERIFY(!poller->isDiscovering());
+
+    receive(0x7E8, "0641208007A011AA"); //it arrives late: 0x40 is supported
+    QVERIFY(poller->isDiscovering());
+    advance(1);
+    QCOMPARE(sentFrames.size(), 3u);
+    QCOMPARE(sentPayload(2).left(3), QByteArray::fromHex("020140"));
+    receive(0x7E8, "06414040000000AA");
+    QCOMPARE(finished, 2);
+    QVERIFY(poller->ecus()[0].supportedPids.contains(0x42));
+    QVERIFY(poller->ecus()[0].supportedPids.contains(0x21));
+
+    //the same bitmap answer again asks nothing more
+    receive(0x7E8, "0641208007A011AA");
+    advance(10);
+    QCOMPARE(sentFrames.size(), 3u);
+    QVERIFY(!poller->isDiscovering());
 }
 
 QTEST_MAIN(TestObd2Poller)

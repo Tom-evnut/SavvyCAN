@@ -2781,9 +2781,21 @@ void MainWindow::showObd2Window()
 {
     if (!obd2Window)
     {
-        ISOTP_HANDLER *isotp = HandlerFactory::createISOTPHandler();
-        obd2Window = new Obd2Window(new Obd2Poller(isotp), CANConManager::getInstance()->getNumBuses());
-        isotp->setParent(obd2Window); //deleted with the window, after the poller that uses it
+        //The poller runs in a thread of its own and gets its answers straight from the connections' threads
+        //(targetted frames), not from the 20 ms frame batches of the GUI thread, so a busy GUI doesn't hold its
+        //requests back. So its ISO-TP handler isn't connected to those batches.
+        ISOTP_HANDLER *isotp = new ISOTP_HANDLER(*model->getListReference(),
+            [](const CommFrame &frame) { CANConManager::getInstance()->sendFrame(frame); },
+            []() { return CANConManager::getInstance()->getNumBuses(); },
+            ISOTP_HANDLER::PendingConnection<ISOTP_HANDLER>());
+        Obd2Poller *poller = new Obd2Poller(isotp);
+        isotp->setParent(poller); //deleted with the poller, in its thread
+        poller->setFrameFilterHook([poller](int bus, quint32 id, quint32 mask, bool add) {
+            if (add) CANConManager::getInstance()->addTargettedFrame(bus, id, mask, poller);
+            else CANConManager::getInstance()->removeTargettedFrame(bus, id, mask, poller);
+        });
+        obd2Window = new Obd2Window(poller, CANConManager::getInstance()->getNumBuses());
+        obd2Window->runPollerInThread();
         obd2Window->setHelpCallback([]() { HelpWindow::getRef()->showHelp("obd2.md"); });
         obd2Window->setListenOnlyCheck([](int bus) {
             int busBase = 0;
