@@ -91,7 +91,7 @@ private:
     QByteArray mReadBuffer;
     QList<CommFrame> mFrames;
     QString mLastError;
-    bool mRecordFormat2 = false; //the firmware accepted record format 2
+    int mRecordFormat = 1; //record format the firmware accepted (1 stock, 2 device us, 3 + fine clock/seq)
     bool mInjectorEnabled = false; //true once a bus is taken out of listen-only; sent to the device as op 0x91
 };
 

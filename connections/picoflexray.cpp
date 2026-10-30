@@ -17,9 +17,11 @@ constexpr unsigned int WRITE_TIMEOUT_MS = 500; //injector writes are tiny; this 
 constexpr int NUM_BUSES = 2;            //FR1, FR2
 constexpr int FLEXRAY_BITRATE = 10000000;
 constexpr uint8_t PANDA_RESET_CAN_COMMS = 0xc0; //pico-flexray: clears its frame FIFO
-constexpr uint8_t PICOFLEX_SET_RECORD_FORMAT = 0xa0; //wValue = record format (1 stock, 2 with device timestamps)
+constexpr uint8_t PICOFLEX_SET_RECORD_FORMAT = 0xa0; //wValue = record format (1 stock, 2 device us, 3 + fine clock/seq)
+constexpr uint8_t PICOFLEX_GET_TS_INFO = 0xa2;       //only the timestamped-capture firmware answers this (64-byte struct)
 constexpr uint16_t RECORD_FORMAT_STOCK = 1;
 constexpr uint16_t RECORD_FORMAT_V2 = 2;
+constexpr uint16_t RECORD_FORMAT_V3 = 3;
 
 #ifdef HAVE_LIBUSB
 QString serialNumberOf(libusb_device_handle *handle, const libusb_device_descriptor &desc)
@@ -188,13 +190,28 @@ bool PicoFlexRay::openDevice()
         return false;
     }
 
-    //ask for record format 2 (device timestamps, CRC flags, CRC-failed frames). Stock firmware stalls the request
-    //and keeps sending format 1, which the parser reads too.
+    //Ask for the richest record format the firmware offers: 3 (device timestamps + a sequence number that exposes
+    //USB frame loss) on the timestamped-capture firmware, else 2 (device timestamps). The timestamped-capture build
+    //is the only one that answers GET_TS_INFO, so probe that first and only request format 3 from firmware that
+    //advertises it; that keeps format-2-only firmware on format 2 exactly as before. Stock firmware stalls both
+    //requests and keeps sending format 1, which the parser also reads. The parser detects the format per record, so
+    //whatever the device actually sends is handled regardless of what was granted here.
     const uint8_t vendorOut = LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE;
-    rc = libusb_control_transfer(mHandle, vendorOut, PICOFLEX_SET_RECORD_FORMAT, RECORD_FORMAT_V2, 0, nullptr, 0, 500);
-    mRecordFormat2 = (rc >= 0);
-    emit debugOutput(mRecordFormat2 ? "pico-flexray: firmware sends record format 2 (device timestamps)"
-                                    : "pico-flexray: stock firmware (record format 1): frames get host timestamps");
+    const uint8_t vendorIn = LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE;
+    unsigned char tsInfo[64] = {0};
+    const bool tsCapable = libusb_control_transfer(mHandle, vendorIn, PICOFLEX_GET_TS_INFO, 0, 0,
+                                                   tsInfo, sizeof(tsInfo), 500) > 0;
+    const uint16_t wanted = tsCapable ? RECORD_FORMAT_V3 : RECORD_FORMAT_V2;
+    rc = libusb_control_transfer(mHandle, vendorOut, PICOFLEX_SET_RECORD_FORMAT, wanted, 0, nullptr, 0, 500);
+    mRecordFormat = (rc >= 0) ? wanted : RECORD_FORMAT_STOCK;
+    switch (mRecordFormat) {
+    case RECORD_FORMAT_V3:
+        emit debugOutput("pico-flexray: firmware sends record format 3 (device timestamps + USB-loss sequence)"); break;
+    case RECORD_FORMAT_V2:
+        emit debugOutput("pico-flexray: firmware sends record format 2 (device timestamps)"); break;
+    default:
+        emit debugOutput("pico-flexray: stock firmware (record format 1): frames get host timestamps"); break;
+    }
 
     //clear frames the device queued before we connected; firmware that doesn't know the request just stalls it
     libusb_control_transfer(mHandle, vendorOut, PANDA_RESET_CAN_COMMS, 0, 0, nullptr, 0, 500);
@@ -213,17 +230,18 @@ void PicoFlexRay::closeDevice()
 #ifdef HAVE_LIBUSB
     if (mHandle) {
         //leave the device in the original record format for other tools (it also goes back on its own when unplugged)
-        if (mRecordFormat2)
+        if (mRecordFormat >= RECORD_FORMAT_V2)
             libusb_control_transfer(mHandle, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE,
                                     PICOFLEX_SET_RECORD_FORMAT, RECORD_FORMAT_STOCK, 0, nullptr, 0, 200);
         libusb_release_interface(mHandle, 0);
         libusb_close(mHandle);
         emit debugOutput(QString("pico-flexray: closed. %1 frames (%2 null, %3 CRC errors, %4 with device time), "
-                                 "%5 bytes skipped resyncing")
+                                 "%5 frames lost to USB in %6 gaps, %7 bytes skipped resyncing")
                              .arg(mParser.framesParsed()).arg(mParser.nullFrames()).arg(mParser.crcErrorFrames())
-                             .arg(mParser.format2Records()).arg(mParser.bytesSkipped()));
+                             .arg(mParser.deviceTimeRecords()).arg(mParser.seqFramesLost()).arg(mParser.seqGaps())
+                             .arg(mParser.bytesSkipped()));
     }
-    mRecordFormat2 = false;
+    mRecordFormat = RECORD_FORMAT_STOCK;
 #endif
     mHandle = nullptr;
 }
