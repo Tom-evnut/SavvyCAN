@@ -16,6 +16,7 @@
 
 
 class CANConnectionModel;
+class QPushButton;
 
 namespace Ui {
 class ConnectionWindow;
@@ -55,9 +56,11 @@ private slots:
     void moveConnDown();
     void connectionStatus(CANConStatus);
     void readPendingDatagrams();
+    void handlePiFlexConfig(); //open the PiFlex injection/generator editor for the selected connection
 
 private:
-    Ui::ConnectionWindow *ui;    
+    Ui::ConnectionWindow *ui;
+    QPushButton *btnPiFlexConfig = nullptr; //added in code; only enabled for a PicoFlexRay connection
     QSettings *settings;
     CANConnectionModel *connModel;
     QUdpSocket *rxBroadcastGVRET;

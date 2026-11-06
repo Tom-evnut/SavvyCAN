@@ -29,6 +29,7 @@ SOURCES += main.cpp\
     connections/canserver.cpp \
     connections/picoflexray.cpp \
     connections/picoflexrayparser.cpp \
+    connections/piflexconfigdialog.cpp \
     connections/lawicel_serial.cpp \
     connections/mqtt_bus.cpp \
     dbc/dbcnodeduplicateeditor.cpp \
@@ -137,6 +138,7 @@ HEADERS  += mainwindow.h \
     connections/canserver.h \
     connections/picoflexray.h \
     connections/picoflexrayparser.h \
+    connections/piflexconfigdialog.h \
     connections/lawicel_serial.h \
     connections/socketcand.h \
     connections/mqtt_bus.h \
