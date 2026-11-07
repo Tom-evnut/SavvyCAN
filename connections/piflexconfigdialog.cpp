@@ -193,9 +193,9 @@ void PiFlexConfigDialog::loadFromSettings()
         PicoFlexRay::deserialiseInjectRules(settings.value(base + "/injectRules").toByteArray());
     for (const PicoFlexRay::InjectRule &r : rules) addRuleRow(r);
 
-    const QList<PicoFlexRay::SourceSlot> slots =
+    const QList<PicoFlexRay::SourceSlot> slotList =
         PicoFlexRay::deserialiseSourceSlots(settings.value(base + "/sourceSlots").toByteArray());
-    for (const PicoFlexRay::SourceSlot &s : slots) addSourceRow(s);
+    for (const PicoFlexRay::SourceSlot &s : slotList) addSourceRow(s);
 
     mPeriodUs->setValue(settings.value(base + "/srcPeriodUs", 0).toInt());
     mCycleGapUs->setValue(settings.value(base + "/srcCycleGapUs", 0).toInt());
@@ -323,13 +323,13 @@ void PiFlexConfigDialog::onDeleteSource()
 void PiFlexConfigDialog::onApplySchedule()
 {
     if (!mConn) return;
-    QList<PicoFlexRay::SourceSlot> slots;
-    if (!gatherSources(slots)) return;
+    QList<PicoFlexRay::SourceSlot> slotList;
+    if (!gatherSources(slotList)) return;
     PicoFlexRay::SourceParams params;
     params.periodUs = static_cast<quint32>(mPeriodUs->value());
     params.cycleGapUs = static_cast<quint32>(mCycleGapUs->value());
     params.enable = mRun->isChecked();
-    mConn->applySourceSchedule(slots, params);
+    mConn->applySourceSchedule(slotList, params);
     mConn->requestInjectStatus();
 }
 

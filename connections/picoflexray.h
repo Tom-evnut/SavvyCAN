@@ -111,7 +111,7 @@ public:
     //the connection read the same stored config. Pure, versioned, and independent of the wire format.
     static QByteArray serialiseInjectRules(const QList<InjectRule> &rules);
     static QList<InjectRule> deserialiseInjectRules(const QByteArray &blob);
-    static QByteArray serialiseSourceSlots(const QList<SourceSlot> &slots);
+    static QByteArray serialiseSourceSlots(const QList<SourceSlot> &slotList);
     static QList<SourceSlot> deserialiseSourceSlots(const QByteArray &blob);
 
     /*
@@ -153,7 +153,7 @@ public slots:
     void applyInjectRules(QList<PicoFlexRay::InjectRule> rules);
     void clearInjectRules();
     //Replace the device's generator schedule (slots + params) likewise.
-    void applySourceSchedule(QList<PicoFlexRay::SourceSlot> slots, PicoFlexRay::SourceParams params);
+    void applySourceSchedule(QList<PicoFlexRay::SourceSlot> slotList, PicoFlexRay::SourceParams params);
     void clearSourceSchedule();
     //Push just the generator timing / run-stop (op 0x96) without touching the slot table.
     void applySourceParams(PicoFlexRay::SourceParams params);

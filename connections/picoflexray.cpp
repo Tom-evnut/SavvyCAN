@@ -575,32 +575,32 @@ QList<PicoFlexRay::InjectRule> PicoFlexRay::deserialiseInjectRules(const QByteAr
     return rules;
 }
 
-QByteArray PicoFlexRay::serialiseSourceSlots(const QList<SourceSlot> &slots)
+QByteArray PicoFlexRay::serialiseSourceSlots(const QList<SourceSlot> &slotList)
 {
     QByteArray blob;
     QDataStream s(&blob, QIODevice::WriteOnly);
     s.setVersion(QDataStream::Qt_6_5);
-    s << static_cast<quint8>(1) << static_cast<quint32>(slots.size());
-    for (const SourceSlot &sl : slots)
+    s << static_cast<quint8>(1) << static_cast<quint32>(slotList.size());
+    for (const SourceSlot &sl : slotList)
         s << sl.slotId << sl.chanMask << sl.lastByteTracksCycle << sl.payload;
     return blob;
 }
 
 QList<PicoFlexRay::SourceSlot> PicoFlexRay::deserialiseSourceSlots(const QByteArray &blob)
 {
-    QList<SourceSlot> slots;
-    if (blob.isEmpty()) return slots;
+    QList<SourceSlot> slotList;
+    if (blob.isEmpty()) return slotList;
     QDataStream s(blob);
     s.setVersion(QDataStream::Qt_6_5);
     quint8 ver = 0; quint32 count = 0;
     s >> ver >> count;
-    if (ver != 1) return slots;
+    if (ver != 1) return slotList;
     for (quint32 i = 0; i < count && s.status() == QDataStream::Ok; i++) {
         SourceSlot sl;
         s >> sl.slotId >> sl.chanMask >> sl.lastByteTracksCycle >> sl.payload;
-        if (s.status() == QDataStream::Ok) slots.append(sl);
+        if (s.status() == QDataStream::Ok) slotList.append(sl);
     }
-    return slots;
+    return slotList;
 }
 
 bool PicoFlexRay::inWorkerThread()
@@ -699,15 +699,15 @@ void PicoFlexRay::clearInjectRules()
 #endif
 }
 
-void PicoFlexRay::applySourceSchedule(QList<PicoFlexRay::SourceSlot> slots, PicoFlexRay::SourceParams params)
+void PicoFlexRay::applySourceSchedule(QList<PicoFlexRay::SourceSlot> slotList, PicoFlexRay::SourceParams params)
 {
     if (!inWorkerThread()) {
         QMetaObject::invokeMethod(this, "applySourceSchedule", Qt::BlockingQueuedConnection,
-                                  Q_ARG(QList<PicoFlexRay::SourceSlot>, slots),
+                                  Q_ARG(QList<PicoFlexRay::SourceSlot>, slotList),
                                   Q_ARG(PicoFlexRay::SourceParams, params));
         return;
     }
-    mSourceSlots = slots;
+    mSourceSlots = slotList;
     mSourceParams = params;
     saveConfigToSettings();
     pushSourceSchedule();
