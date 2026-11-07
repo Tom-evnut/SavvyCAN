@@ -49,7 +49,9 @@ public:
     static constexpr unsigned char VENDOR_OUT_SET_SOURCE_SLOT    = 0x94; //define one generator (source) slot
     static constexpr unsigned char VENDOR_OUT_CLEAR_SOURCE       = 0x95; //wipe the generator schedule
     static constexpr unsigned char VENDOR_OUT_SET_SOURCE_PARAMS  = 0x96; //generator timing + run/stop
-    //Vendor control-IN request (device-to-host), issued like PICOFLEX_GET_TS_INFO: a 16-byte status struct.
+    //Vendor control-IN request (device-to-host), issued like PICOFLEX_GET_TS_INFO: a 16-byte status struct:
+    //[0]='P'[1]='F'[2]=ver=1 [3]=injector_enabled [4]=inject_rule_count [5]=source_slot_count
+    //[6]=source_running [7]=source_slot_drops [8..11]=u32 inject_matches [12..15]=u32 inject_drops.
     static constexpr unsigned char PICOFLEX_GET_INJECT_STATUS    = 0xa3;
 
     /*
@@ -89,6 +91,7 @@ public:
         quint8  ruleCount = 0;          //rules the device currently holds
         quint8  sourceSlotCount = 0;    //generator slots the device currently holds
         bool    sourceRunning = false;
+        quint8  sourceSlotDrops = 0;    //generator slots the device rejected (e.g. odd-length payload)
         quint32 totalMatches = 0;       //0x90 overrides that matched a rule
         quint32 totalDrops = 0;         //0x90 overrides dropped (no matching rule / bad length)
     };
@@ -182,9 +185,8 @@ private:
     bool inWorkerThread(); //true when already running in the connection's worker thread
     void pushInjectRules();      //clear then send mInjectRules to the device (needs mHandle)
     void pushSourceSchedule();   //clear then send mSourceSlots + mSourceParams to the device (needs mHandle)
-    void pushAllConfig();        //re-push everything configured (called on (re)connect)
-    void loadConfigFromSettings(); //pull the persisted config into the members
-    void saveConfigToSettings();   //persist the members
+    void pushAllConfig();        //re-push everything configured (called on (re)connect, only if user-applied)
+    void saveConfigToSettings();   //persist the members (so the editor restores them next session)
 
     PicoFlexRayParser mParser;
     QTimer *mReadTimer = nullptr;
@@ -202,6 +204,9 @@ private:
     QList<InjectRule> mInjectRules;
     QList<SourceSlot> mSourceSlots;
     SourceParams mSourceParams;
+    //true once the user has explicitly applied a config in this session. Gates the on-connect push so that
+    //merely connecting never clears or overwrites the device's boot defaults / a free-running generator.
+    bool mUserAppliedConfig = false;
     QString mLastStatusSummary; //throttles the status line in the debug log
 };
 

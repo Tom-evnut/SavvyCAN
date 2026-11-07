@@ -218,8 +218,11 @@ bool PicoFlexRay::openDevice()
     mParser.reset();
     mReadBuffer.resize(READ_SIZE);
     applyInjectorEnable(); //the device powers up with the injector on; put it in the state the bus settings ask for
-    loadConfigFromSettings(); //bring the persisted injection rules / generator schedule into the members
-    pushAllConfig();          //re-push them so a reconnect (or app restart) restores the device's config
+    //Only re-push rules/schedule if the user explicitly applied a config in THIS session. Merely connecting must
+    //not clear or overwrite the device's boot defaults (or a free-running generator): a board that was happily
+    //sourcing frames kept running when we leave its config alone. The editor still loads its last-saved config
+    //from QSettings for editing; it reaches the device only when the user clicks an Apply button.
+    if (mUserAppliedConfig) pushAllConfig();
     mLastStatusSummary.clear();
     if (mStatusTimer) mStatusTimer->start();
     pollInjectStatus();       //one read now so the editor shows device state immediately
@@ -524,7 +527,7 @@ QByteArray PicoFlexRay::setSourceParamsPayload(const SourceParams &params)
 
 //0xa3 GET_INJECT_STATUS reply: 16 bytes, little-endian:
 // [0]='P' [1]='F' [2]=version=1 [3]=injector_enabled [4]=inject_rule_count [5]=source_slot_count
-// [6]=source_running [7]=reserved [8..11]=u32 total_inject_matches [12..15]=u32 total_inject_drops
+// [6]=source_running [7]=source_slot_drops [8..11]=u32 total_inject_matches [12..15]=u32 total_inject_drops
 bool PicoFlexRay::parseInjectStatus(const QByteArray &reply, InjectStatus &out)
 {
     out = InjectStatus();
@@ -537,7 +540,7 @@ bool PicoFlexRay::parseInjectStatus(const QByteArray &reply, InjectStatus &out)
     out.ruleCount = b[4];
     out.sourceSlotCount = b[5];
     out.sourceRunning = b[6] != 0;
-    //b[7] reserved
+    out.sourceSlotDrops = b[7]; //generator slots the device rejected (e.g. odd-length payload)
     out.totalMatches = static_cast<quint32>(b[8]) | (static_cast<quint32>(b[9]) << 8)
                        | (static_cast<quint32>(b[10]) << 16) | (static_cast<quint32>(b[11]) << 24);
     out.totalDrops = static_cast<quint32>(b[12]) | (static_cast<quint32>(b[13]) << 8)
@@ -616,17 +619,6 @@ QString PicoFlexRay::settingsGroup() const
     return "PicoFlex/" + port;
 }
 
-void PicoFlexRay::loadConfigFromSettings()
-{
-    QSettings settings;
-    const QString base = settingsGroup();
-    mInjectRules = deserialiseInjectRules(settings.value(base + "/injectRules").toByteArray());
-    mSourceSlots = deserialiseSourceSlots(settings.value(base + "/sourceSlots").toByteArray());
-    mSourceParams.periodUs   = settings.value(base + "/srcPeriodUs", 0).toUInt();
-    mSourceParams.cycleGapUs = settings.value(base + "/srcCycleGapUs", 0).toUInt();
-    mSourceParams.enable     = settings.value(base + "/srcEnable", false).toBool();
-}
-
 void PicoFlexRay::saveConfigToSettings()
 {
     QSettings settings;
@@ -682,6 +674,7 @@ void PicoFlexRay::applyInjectRules(QList<PicoFlexRay::InjectRule> rules)
         return;
     }
     mInjectRules = rules;
+    mUserAppliedConfig = true; //an explicit Apply: it's now safe to re-push on reconnect
     saveConfigToSettings();
     pushInjectRules();
 }
@@ -709,6 +702,7 @@ void PicoFlexRay::applySourceSchedule(QList<PicoFlexRay::SourceSlot> slotList, P
     }
     mSourceSlots = slotList;
     mSourceParams = params;
+    mUserAppliedConfig = true; //an explicit Apply: it's now safe to re-push on reconnect
     saveConfigToSettings();
     pushSourceSchedule();
 }
@@ -734,6 +728,7 @@ void PicoFlexRay::applySourceParams(PicoFlexRay::SourceParams params)
         return;
     }
     mSourceParams = params;
+    mUserAppliedConfig = true; //an explicit Apply: it's now safe to re-push on reconnect
     saveConfigToSettings();
 #ifdef HAVE_LIBUSB
     if (mHandle) vendorWrite(setSourceParamsPayload(mSourceParams), "set source params");
@@ -767,9 +762,10 @@ void PicoFlexRay::pollInjectStatus()
 
     //surface a summary in the debug log, but only when it changes so the log isn't spammed at 1 Hz
     const QString summary = QString("pico-flexray inject status: injector %1, %2 rule(s), %3 source slot(s), "
-                                    "source %4, %5 matches, %6 drops")
+                                    "source %4, %5 source drops, %6 matches, %7 drops")
                                 .arg(st.injectorEnabled ? "on" : "off").arg(st.ruleCount).arg(st.sourceSlotCount)
-                                .arg(st.sourceRunning ? "running" : "stopped").arg(st.totalMatches).arg(st.totalDrops);
+                                .arg(st.sourceRunning ? "running" : "stopped").arg(st.sourceSlotDrops)
+                                .arg(st.totalMatches).arg(st.totalDrops);
     if (summary != mLastStatusSummary) {
         emit debugOutput(summary);
         mLastStatusSummary = summary;

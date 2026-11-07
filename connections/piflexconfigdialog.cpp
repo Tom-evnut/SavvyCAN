@@ -269,7 +269,11 @@ bool PiFlexConfigDialog::gatherSources(QList<PicoFlexRay::SourceSlot> &out)
         if (slot > 0x7FF) return bad(COL_S_SLOT, "slot ID is out of range (0-0x7FF)");
         QByteArray payload;
         if (!parsePayload(text(COL_S_PAYLOAD), payload)) return bad(COL_S_PAYLOAD, "payload must be hex bytes (e.g. 11 22 AA)");
-        if (payload.size() > CommFrame::FLEXRAY_MAX_PAYLOAD) return bad(COL_S_PAYLOAD, "payload is longer than 254 bytes");
+        //FlexRay payloads are an even number of bytes (the header length is counted in 2-byte words), so the device
+        //rejects an odd-length source slot. Enforce an even length in 2..254 here with a clear, slot-named message.
+        if (payload.size() < 2 || payload.size() > CommFrame::FLEXRAY_MAX_PAYLOAD || (payload.size() % 2) != 0)
+            return bad(COL_S_PAYLOAD, QString("slot 0x%1: payload must be an even number of bytes (2-254)")
+                                          .arg(slot, 0, 16));
 
         PicoFlexRay::SourceSlot s;
         s.slotId = static_cast<quint16>(slot);
@@ -311,7 +315,12 @@ void PiFlexConfigDialog::onClearRules()
 
 void PiFlexConfigDialog::onAddSource()
 {
-    addSourceRow(PicoFlexRay::SourceSlot());
+    //default a new slot to a clean, valid payload: FlexRay payloads are an even number of bytes (the header length
+    //is in 2-byte words), so start with 8 bytes on FR1 rather than an empty/odd default the firmware would reject.
+    PicoFlexRay::SourceSlot slot;
+    slot.chanMask = 0x01; //FR1
+    slot.payload = QByteArray(8, static_cast<char>(0x11));
+    addSourceRow(slot);
 }
 
 void PiFlexConfigDialog::onDeleteSource()
@@ -351,11 +360,13 @@ void PiFlexConfigDialog::onInjectStatus(QByteArray reply)
     mStatusLine->setText(QString(
         "<b>Injector:</b> %1 &nbsp;&nbsp; <b>Rules on device:</b> %2 &nbsp;&nbsp; "
         "<b>Source slots:</b> %3 &nbsp;&nbsp; <b>Generator:</b> %4<br>"
-        "<b>Override matches:</b> %5 &nbsp;&nbsp; <b>Override drops:</b> %6")
+        "<b>Override matches:</b> %5 &nbsp;&nbsp; <b>Override drops:</b> %6 &nbsp;&nbsp; "
+        "<b>Source drops:</b> %7")
             .arg(st.injectorEnabled ? "enabled" : "disabled")
             .arg(st.ruleCount)
             .arg(st.sourceSlotCount)
             .arg(st.sourceRunning ? "running" : "stopped")
             .arg(st.totalMatches)
-            .arg(st.totalDrops));
+            .arg(st.totalDrops)
+            .arg(st.sourceSlotDrops));
 }
