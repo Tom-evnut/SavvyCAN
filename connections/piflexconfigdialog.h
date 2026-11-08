@@ -9,6 +9,8 @@ class QTableWidget;
 class QSpinBox;
 class QCheckBox;
 class QLabel;
+class QComboBox;
+class QGroupBox;
 
 /*
  * Editor for a PicoFlexRay device's host-configurable injection rules and generator (source) schedule.
@@ -39,6 +41,8 @@ private slots:
     void onApplySchedule();
     void onClearSchedule();
     void onInjectStatus(QByteArray reply);
+    void onSetMode();            //send the selected run mode to the device (0xa4)
+    void onDeviceMode(int mode); //device reported its current mode (0xa5); update the UI, don't send
 
 private:
     void buildUi();
@@ -48,8 +52,14 @@ private:
     bool gatherRules(QList<PicoFlexRay::InjectRule> &out);      //false + message box on a bad cell
     bool gatherSources(QList<PicoFlexRay::SourceSlot> &out);    //false + message box on a bad cell
 
+    void applyModeGating(int mode); //enable/grey the rules + schedule boxes for the device's current mode
+
     QPointer<PicoFlexRay> mConn;
 
+    QComboBox *mModeCombo = nullptr;    //Sniff / Bridge / Inject / Source
+    QLabel *mModeDeviceLabel = nullptr; //shows the device's actual reported mode
+    QGroupBox *mRuleBox = nullptr;      //"Injection rules" group (relevant in INJECT mode)
+    QGroupBox *mSrcBox = nullptr;       //"Generator schedule" group (relevant in SOURCE mode)
     QTableWidget *mRuleTable = nullptr;
     QTableWidget *mSourceTable = nullptr;
     QSpinBox *mPeriodUs = nullptr;

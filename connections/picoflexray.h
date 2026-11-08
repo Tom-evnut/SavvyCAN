@@ -53,6 +53,16 @@ public:
     //[0]='P'[1]='F'[2]=ver=1 [3]=injector_enabled [4]=inject_rule_count [5]=source_slot_count
     //[6]=source_running [7]=source_slot_drops [8..11]=u32 inject_matches [12..15]=u32 inject_drops.
     static constexpr unsigned char PICOFLEX_GET_INJECT_STATUS    = 0xa3;
+    //Runtime mode selector (frozen contract, identical to the unified firmware). 0xa4 SET_MODE is a vendor control
+    //OUT whose wValue carries the mode (0..3); 0xa5 GET_MODE is a vendor control IN returning one byte = active mode.
+    static constexpr unsigned char PICOFLEX_SET_MODE            = 0xa4;
+    static constexpr unsigned char PICOFLEX_GET_MODE            = 0xa5;
+
+    //Device run mode (FROZEN enum, identical to the firmware). INJECT makes the injection rules relevant; SOURCE
+    //makes the generator schedule relevant.
+    enum Mode { MODE_SNIFF = 0, MODE_BRIDGE = 1, MODE_INJECT = 2, MODE_SOURCE = 3 };
+    static bool isValidMode(int mode) { return mode >= MODE_SNIFF && mode <= MODE_SOURCE; }
+    static QString modeName(int mode); //"Sniff"/"Bridge"/"Inject"/"Source", or "unknown"
 
     /*
      * One host-defined injection rule. The device matches a captured frame when its slot ID equals slotId and
@@ -149,8 +159,16 @@ public:
 signals:
     //emitted after a successful 0xa3 status read (the raw 16 bytes; parse with parseInjectStatus).
     void injectStatus(QByteArray reply);
+    //emitted after a 0xa5 GET_MODE read (on connect and after a setMode); mode is 0..3, or -1 if the firmware
+    //doesn't support the mode request. The editor shows this as the device's actual current mode.
+    void deviceMode(int mode);
 
 public slots:
+    //Switch the device's run mode (0xa4 SET_MODE, wValue = mode). Only ever sent on the user's explicit choice,
+    //never on connect. Reads the mode back afterwards and emits deviceMode. Safe to call from any thread.
+    void setMode(int mode);
+    //Request an immediate 0xa5 GET_MODE read (also done once on connect); emits deviceMode.
+    void requestMode();
     //Replace the device's injection rules with these (clears, then sends each), store them for re-push on
     //reconnect, and persist them. Safe to call from any thread: marshalled to the connection's worker thread.
     void applyInjectRules(QList<PicoFlexRay::InjectRule> rules);
@@ -175,6 +193,7 @@ private slots:
     void readDevice();
     void tryConnect();
     void pollInjectStatus(); //timer-driven 0xa3 read; runs in the worker thread
+    void pollMode();         //0xa5 GET_MODE read; runs in the worker thread, emits deviceMode
 
 private:
     bool openDevice();
