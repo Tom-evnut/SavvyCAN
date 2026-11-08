@@ -1,5 +1,9 @@
 #include <QDateTime>
 #include <QDebug>
+#include <QThread>
+#include <QSettings>
+#include <QDataStream>
+#include <QIODevice>
 
 #include "canconmanager.h"
 #include "picoflexray.h"
@@ -82,6 +86,13 @@ PicoFlexRay::PicoFlexRay(QString serialNumber) :
     CANConnection(serialNumber, "pico-flexray", CANCon::PICOFLEXRAY, 0, FLEXRAY_BITRATE, false, 0, NUM_BUSES, 16000, true,
                   true /* listen only */, true)
 {
+    //so the config apply slots can be invoked across the worker-thread boundary (BlockingQueuedConnection)
+    qRegisterMetaType<PicoFlexRay::InjectRule>("PicoFlexRay::InjectRule");
+    qRegisterMetaType<PicoFlexRay::SourceSlot>("PicoFlexRay::SourceSlot");
+    qRegisterMetaType<PicoFlexRay::SourceParams>("PicoFlexRay::SourceParams");
+    qRegisterMetaType<QList<PicoFlexRay::InjectRule>>("QList<PicoFlexRay::InjectRule>");
+    qRegisterMetaType<QList<PicoFlexRay::SourceSlot>>("QList<PicoFlexRay::SourceSlot>");
+
     CANBus bus;
     bus.setActive(true);
     bus.setListenOnly(true);
@@ -124,6 +135,9 @@ void PicoFlexRay::piStarted()
     mReconnectTimer = new QTimer(this);
     mReconnectTimer->setInterval(1000);
     connect(mReconnectTimer, &QTimer::timeout, this, &PicoFlexRay::tryConnect);
+    mStatusTimer = new QTimer(this);
+    mStatusTimer->setInterval(1000); //poll the injector status (0xa3) once a second while connected
+    connect(mStatusTimer, &QTimer::timeout, this, &PicoFlexRay::pollInjectStatus);
 
 #ifdef HAVE_LIBUSB
     int rc = libusb_init(&mContext);
@@ -144,6 +158,7 @@ void PicoFlexRay::piStop()
 {
     if (mReadTimer) mReadTimer->stop();
     if (mReconnectTimer) mReconnectTimer->stop();
+    if (mStatusTimer) mStatusTimer->stop();
     closeDevice();
 #ifdef HAVE_LIBUSB
     if (mContext) libusb_exit(mContext);
@@ -153,6 +168,8 @@ void PicoFlexRay::piStop()
     mReadTimer = nullptr;
     delete mReconnectTimer;
     mReconnectTimer = nullptr;
+    delete mStatusTimer;
+    mStatusTimer = nullptr;
 }
 
 void PicoFlexRay::tryConnect()
@@ -201,6 +218,14 @@ bool PicoFlexRay::openDevice()
     mParser.reset();
     mReadBuffer.resize(READ_SIZE);
     applyInjectorEnable(); //the device powers up with the injector on; put it in the state the bus settings ask for
+    //Only re-push rules/schedule if the user explicitly applied a config in THIS session. Merely connecting must
+    //not clear or overwrite the device's boot defaults (or a free-running generator): a board that was happily
+    //sourcing frames kept running when we leave its config alone. The editor still loads its last-saved config
+    //from QSettings for editing; it reaches the device only when the user clicks an Apply button.
+    if (mUserAppliedConfig) pushAllConfig();
+    mLastStatusSummary.clear();
+    if (mStatusTimer) mStatusTimer->start();
+    pollInjectStatus();       //one read now so the editor shows device state immediately
     emit debugOutput("pico-flexray: connected");
     return true;
 #else
@@ -211,6 +236,7 @@ bool PicoFlexRay::openDevice()
 void PicoFlexRay::closeDevice()
 {
 #ifdef HAVE_LIBUSB
+    if (mStatusTimer) mStatusTimer->stop();
     if (mHandle) {
         //leave the device in the original record format for other tools (it also goes back on its own when unplugged)
         if (mRecordFormat2)
@@ -417,5 +443,332 @@ bool PicoFlexRay::piSendFrame(const CommFrame &frame)
 #else
     emit debugOutput("pico-flexray: built without libusb, can't send");
     return false;
+#endif
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Host-configurable injection rules + generator schedule (ops 0x92-0x96, status 0xa3).
+//
+// The byte-builders below are pure functions that mirror overridePayloadFor(): each returns exactly the bytes
+// written to EP_BULK_OUT, so they can be checked byte-for-byte against the frozen USB contract. All multi-byte
+// fields are little-endian.
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+//append a little-endian unsigned 32-bit value
+void appendU32LE(QByteArray &out, quint32 v)
+{
+    out.append(static_cast<char>(v & 0xFF));
+    out.append(static_cast<char>((v >> 8) & 0xFF));
+    out.append(static_cast<char>((v >> 16) & 0xFF));
+    out.append(static_cast<char>((v >> 24) & 0xFF));
+}
+}
+
+//0x92 SET_INJECT_RULE -> [0x92][slot_lo][slot_hi][cycle_base][cycle_mask][win_off][win_len] (7 bytes)
+QByteArray PicoFlexRay::setInjectRulePayload(const InjectRule &rule)
+{
+    QByteArray out;
+    out.append(static_cast<char>(VENDOR_OUT_SET_INJECT_RULE));
+    out.append(static_cast<char>(rule.slotId & 0xFF));
+    out.append(static_cast<char>((rule.slotId >> 8) & 0xFF));
+    out.append(static_cast<char>(rule.cycleBase));
+    out.append(static_cast<char>(rule.cycleMask));
+    out.append(static_cast<char>(rule.winOffset));
+    out.append(static_cast<char>(rule.winLength));
+    return out;
+}
+
+//0x93 CLEAR_INJECT_RULES -> [0x93] (1 byte)
+QByteArray PicoFlexRay::clearInjectRulesPayload()
+{
+    QByteArray out;
+    out.append(static_cast<char>(VENDOR_OUT_CLEAR_INJECT_RULES));
+    return out;
+}
+
+//0x94 SET_SOURCE_SLOT -> [0x94][slot_lo][slot_hi][chan_mask][len=N][flags][payload x N] (6+N bytes)
+QByteArray PicoFlexRay::setSourceSlotPayload(const SourceSlot &slot)
+{
+    QByteArray payload = slot.payload;
+    if (payload.size() > CommFrame::FLEXRAY_MAX_PAYLOAD) //clamp to a FlexRay payload; len field is one byte
+        payload.truncate(CommFrame::FLEXRAY_MAX_PAYLOAD);
+    const quint8 flags = slot.lastByteTracksCycle ? 0x01 : 0x00;
+
+    QByteArray out;
+    out.append(static_cast<char>(VENDOR_OUT_SET_SOURCE_SLOT));
+    out.append(static_cast<char>(slot.slotId & 0xFF));
+    out.append(static_cast<char>((slot.slotId >> 8) & 0xFF));
+    out.append(static_cast<char>(slot.chanMask));
+    out.append(static_cast<char>(payload.size() & 0xFF));
+    out.append(static_cast<char>(flags));
+    out.append(payload);
+    return out;
+}
+
+//0x95 CLEAR_SOURCE_SCHEDULE -> [0x95] (1 byte)
+QByteArray PicoFlexRay::clearSourceSchedulePayload()
+{
+    QByteArray out;
+    out.append(static_cast<char>(VENDOR_OUT_CLEAR_SOURCE));
+    return out;
+}
+
+//0x96 SET_SOURCE_PARAMS -> [0x96][period_us u32 LE][cycle_gap_us u32 LE][enable] (10 bytes)
+QByteArray PicoFlexRay::setSourceParamsPayload(const SourceParams &params)
+{
+    QByteArray out;
+    out.append(static_cast<char>(VENDOR_OUT_SET_SOURCE_PARAMS));
+    appendU32LE(out, params.periodUs);
+    appendU32LE(out, params.cycleGapUs);
+    out.append(static_cast<char>(params.enable ? 1 : 0));
+    return out;
+}
+
+//0xa3 GET_INJECT_STATUS reply: 16 bytes, little-endian:
+// [0]='P' [1]='F' [2]=version=1 [3]=injector_enabled [4]=inject_rule_count [5]=source_slot_count
+// [6]=source_running [7]=source_slot_drops [8..11]=u32 total_inject_matches [12..15]=u32 total_inject_drops
+bool PicoFlexRay::parseInjectStatus(const QByteArray &reply, InjectStatus &out)
+{
+    out = InjectStatus();
+    if (reply.size() != 16) return false;
+    const unsigned char *b = reinterpret_cast<const unsigned char *>(reply.constData());
+    if (b[0] != 0x50 || b[1] != 0x46) return false; //'P','F'
+    if (b[2] != 1) return false;                     //version
+    out.version = b[2];
+    out.injectorEnabled = b[3] != 0;
+    out.ruleCount = b[4];
+    out.sourceSlotCount = b[5];
+    out.sourceRunning = b[6] != 0;
+    out.sourceSlotDrops = b[7]; //generator slots the device rejected (e.g. odd-length payload)
+    out.totalMatches = static_cast<quint32>(b[8]) | (static_cast<quint32>(b[9]) << 8)
+                       | (static_cast<quint32>(b[10]) << 16) | (static_cast<quint32>(b[11]) << 24);
+    out.totalDrops = static_cast<quint32>(b[12]) | (static_cast<quint32>(b[13]) << 8)
+                     | (static_cast<quint32>(b[14]) << 16) | (static_cast<quint32>(b[15]) << 24);
+    out.valid = true;
+    return true;
+}
+
+// --- QSettings (de)serialisation: a versioned blob, independent of the wire format ---
+QByteArray PicoFlexRay::serialiseInjectRules(const QList<InjectRule> &rules)
+{
+    QByteArray blob;
+    QDataStream s(&blob, QIODevice::WriteOnly);
+    s.setVersion(QDataStream::Qt_6_5);
+    s << static_cast<quint8>(1) << static_cast<quint32>(rules.size());
+    for (const InjectRule &r : rules)
+        s << r.slotId << r.cycleBase << r.cycleMask << r.winOffset << r.winLength;
+    return blob;
+}
+
+QList<PicoFlexRay::InjectRule> PicoFlexRay::deserialiseInjectRules(const QByteArray &blob)
+{
+    QList<InjectRule> rules;
+    if (blob.isEmpty()) return rules;
+    QDataStream s(blob);
+    s.setVersion(QDataStream::Qt_6_5);
+    quint8 ver = 0; quint32 count = 0;
+    s >> ver >> count;
+    if (ver != 1) return rules;
+    for (quint32 i = 0; i < count && s.status() == QDataStream::Ok; i++) {
+        InjectRule r;
+        s >> r.slotId >> r.cycleBase >> r.cycleMask >> r.winOffset >> r.winLength;
+        if (s.status() == QDataStream::Ok) rules.append(r);
+    }
+    return rules;
+}
+
+QByteArray PicoFlexRay::serialiseSourceSlots(const QList<SourceSlot> &slotList)
+{
+    QByteArray blob;
+    QDataStream s(&blob, QIODevice::WriteOnly);
+    s.setVersion(QDataStream::Qt_6_5);
+    s << static_cast<quint8>(1) << static_cast<quint32>(slotList.size());
+    for (const SourceSlot &sl : slotList)
+        s << sl.slotId << sl.chanMask << sl.lastByteTracksCycle << sl.payload;
+    return blob;
+}
+
+QList<PicoFlexRay::SourceSlot> PicoFlexRay::deserialiseSourceSlots(const QByteArray &blob)
+{
+    QList<SourceSlot> slotList;
+    if (blob.isEmpty()) return slotList;
+    QDataStream s(blob);
+    s.setVersion(QDataStream::Qt_6_5);
+    quint8 ver = 0; quint32 count = 0;
+    s >> ver >> count;
+    if (ver != 1) return slotList;
+    for (quint32 i = 0; i < count && s.status() == QDataStream::Ok; i++) {
+        SourceSlot sl;
+        s >> sl.slotId >> sl.chanMask >> sl.lastByteTracksCycle >> sl.payload;
+        if (s.status() == QDataStream::Ok) slotList.append(sl);
+    }
+    return slotList;
+}
+
+bool PicoFlexRay::inWorkerThread()
+{
+    return thread() == QThread::currentThread();
+}
+
+QString PicoFlexRay::settingsGroup() const
+{
+    QString port = const_cast<PicoFlexRay *>(this)->getPort();
+    if (port.isEmpty()) port = "default";
+    port.replace('/', '_');
+    return "PicoFlex/" + port;
+}
+
+void PicoFlexRay::saveConfigToSettings()
+{
+    QSettings settings;
+    const QString base = settingsGroup();
+    settings.setValue(base + "/injectRules", serialiseInjectRules(mInjectRules));
+    settings.setValue(base + "/sourceSlots", serialiseSourceSlots(mSourceSlots));
+    settings.setValue(base + "/srcPeriodUs", mSourceParams.periodUs);
+    settings.setValue(base + "/srcCycleGapUs", mSourceParams.cycleGapUs);
+    settings.setValue(base + "/srcEnable", mSourceParams.enable);
+}
+
+void PicoFlexRay::pushInjectRules()
+{
+#ifdef HAVE_LIBUSB
+    if (!mHandle) return;
+    vendorWrite(clearInjectRulesPayload(), "clear inject rules");
+    for (const InjectRule &r : mInjectRules)
+        vendorWrite(setInjectRulePayload(r), "set inject rule");
+    emit debugOutput(QString("pico-flexray: pushed %1 injection rule(s) to the device").arg(mInjectRules.size()));
+#endif
+}
+
+void PicoFlexRay::pushSourceSchedule()
+{
+#ifdef HAVE_LIBUSB
+    if (!mHandle) return;
+    vendorWrite(clearSourceSchedulePayload(), "clear source schedule");
+    for (const SourceSlot &sl : mSourceSlots)
+        vendorWrite(setSourceSlotPayload(sl), "set source slot");
+    vendorWrite(setSourceParamsPayload(mSourceParams), "set source params");
+    emit debugOutput(QString("pico-flexray: pushed %1 generator slot(s), period %2 us, gap %3 us, %4")
+                         .arg(mSourceSlots.size()).arg(mSourceParams.periodUs).arg(mSourceParams.cycleGapUs)
+                         .arg(mSourceParams.enable ? "running" : "stopped"));
+#endif
+}
+
+void PicoFlexRay::pushAllConfig()
+{
+#ifdef HAVE_LIBUSB
+    if (!mHandle) return;
+    //only touch the device tables we actually have config for, so firmware defaults are left alone otherwise
+    if (!mInjectRules.isEmpty()) pushInjectRules();
+    if (!mSourceSlots.isEmpty() || mSourceParams.enable || mSourceParams.periodUs != 0)
+        pushSourceSchedule();
+#endif
+}
+
+void PicoFlexRay::applyInjectRules(QList<PicoFlexRay::InjectRule> rules)
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "applyInjectRules", Qt::BlockingQueuedConnection,
+                                  Q_ARG(QList<PicoFlexRay::InjectRule>, rules));
+        return;
+    }
+    mInjectRules = rules;
+    mUserAppliedConfig = true; //an explicit Apply: it's now safe to re-push on reconnect
+    saveConfigToSettings();
+    pushInjectRules();
+}
+
+void PicoFlexRay::clearInjectRules()
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "clearInjectRules", Qt::BlockingQueuedConnection);
+        return;
+    }
+    mInjectRules.clear();
+    saveConfigToSettings();
+#ifdef HAVE_LIBUSB
+    if (mHandle) vendorWrite(clearInjectRulesPayload(), "clear inject rules");
+#endif
+}
+
+void PicoFlexRay::applySourceSchedule(QList<PicoFlexRay::SourceSlot> slotList, PicoFlexRay::SourceParams params)
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "applySourceSchedule", Qt::BlockingQueuedConnection,
+                                  Q_ARG(QList<PicoFlexRay::SourceSlot>, slotList),
+                                  Q_ARG(PicoFlexRay::SourceParams, params));
+        return;
+    }
+    mSourceSlots = slotList;
+    mSourceParams = params;
+    mUserAppliedConfig = true; //an explicit Apply: it's now safe to re-push on reconnect
+    saveConfigToSettings();
+    pushSourceSchedule();
+}
+
+void PicoFlexRay::clearSourceSchedule()
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "clearSourceSchedule", Qt::BlockingQueuedConnection);
+        return;
+    }
+    mSourceSlots.clear();
+    saveConfigToSettings();
+#ifdef HAVE_LIBUSB
+    if (mHandle) vendorWrite(clearSourceSchedulePayload(), "clear source schedule");
+#endif
+}
+
+void PicoFlexRay::applySourceParams(PicoFlexRay::SourceParams params)
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "applySourceParams", Qt::BlockingQueuedConnection,
+                                  Q_ARG(PicoFlexRay::SourceParams, params));
+        return;
+    }
+    mSourceParams = params;
+    mUserAppliedConfig = true; //an explicit Apply: it's now safe to re-push on reconnect
+    saveConfigToSettings();
+#ifdef HAVE_LIBUSB
+    if (mHandle) vendorWrite(setSourceParamsPayload(mSourceParams), "set source params");
+#endif
+}
+
+void PicoFlexRay::requestInjectStatus()
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "requestInjectStatus", Qt::QueuedConnection);
+        return;
+    }
+    pollInjectStatus();
+}
+
+void PicoFlexRay::pollInjectStatus()
+{
+#ifdef HAVE_LIBUSB
+    if (!mHandle) return;
+    const uint8_t vendorIn = LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE;
+    unsigned char buf[16] = {0};
+    int rc = libusb_control_transfer(mHandle, vendorIn, PICOFLEX_GET_INJECT_STATUS, 0, 0,
+                                     buf, sizeof(buf), 200);
+    if (rc < 16) return; //firmware without the status request stalls it; nothing to report
+
+    QByteArray reply(reinterpret_cast<const char *>(buf), 16);
+    InjectStatus st;
+    if (!parseInjectStatus(reply, st)) return;
+
+    emit injectStatus(reply); //for the config editor
+
+    //surface a summary in the debug log, but only when it changes so the log isn't spammed at 1 Hz
+    const QString summary = QString("pico-flexray inject status: injector %1, %2 rule(s), %3 source slot(s), "
+                                    "source %4, %5 source drops, %6 matches, %7 drops")
+                                .arg(st.injectorEnabled ? "on" : "off").arg(st.ruleCount).arg(st.sourceSlotCount)
+                                .arg(st.sourceRunning ? "running" : "stopped").arg(st.sourceSlotDrops)
+                                .arg(st.totalMatches).arg(st.totalDrops);
+    if (summary != mLastStatusSummary) {
+        emit debugOutput(summary);
+        mLastStatusSummary = summary;
+    }
 #endif
 }

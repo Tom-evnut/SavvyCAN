@@ -8,8 +8,11 @@
 #include "ui_connectionwindow.h"
 #include "connections/canconfactory.h"
 #include "connections/canconmanager.h"
+#include "connections/picoflexray.h"
+#include "connections/piflexconfigdialog.h"
 #include "canbus.h"
 #include <QSettings>
+#include <QPushButton>
 #include <connections/newconnectiondialog.h>
 
 ConnectionWindow::ConnectionWindow(QWidget *parent) :
@@ -62,6 +65,13 @@ ConnectionWindow::ConnectionWindow(QWidget *parent) :
     connect(ui->btnSaveBus, &QPushButton::clicked, this, &ConnectionWindow::saveBusSettings); // <-- Save settings
     connect(ui->btnMoveUp, &QPushButton::clicked, this, &ConnectionWindow::moveConnUp);
     connect(ui->btnMoveDown, &QPushButton::clicked, this, &ConnectionWindow::moveConnDown);
+
+    //PiFlex injection/generator editor: a connection-specific button, only enabled for a PicoFlexRay connection
+    btnPiFlexConfig = new QPushButton(tr("PiFlex Config…"), this);
+    btnPiFlexConfig->setEnabled(false);
+    btnPiFlexConfig->setToolTip(tr("Define this pico-flexray device's injection rules and generator schedule"));
+    if (ui->groupBus->layout()) ui->groupBus->layout()->addWidget(btnPiFlexConfig);
+    connect(btnPiFlexConfig, &QPushButton::clicked, this, &ConnectionWindow::handlePiFlexConfig);
 
 
     ui->cbBusSpeed->addItem("33333");
@@ -515,6 +525,7 @@ void ConnectionWindow::currentRowChanged(const QModelIndex &current, const QMode
     /* set parameters */
     if (selIdx == -1) {
         ui->groupBus->setEnabled(false);
+        if (btnPiFlexConfig) btnPiFlexConfig->setEnabled(false);
         return;
     }
     else
@@ -525,6 +536,9 @@ void ConnectionWindow::currentRowChanged(const QModelIndex &current, const QMode
 
         CANConnection* conn_p = connModel->getAtIdx(selIdx);
         if(!conn_p) return;
+
+        //the PiFlex injection/generator editor only applies to a PicoFlexRay connection
+        if (btnPiFlexConfig) btnPiFlexConfig->setEnabled(conn_p->getType() == CANCon::PICOFLEXRAY);
 
         //because this might have already been setup during the initial setup so tear that one down and then create the normal one.
         //disconnect(conn_p, &CANConnection::debugOutput, 0, 0);
@@ -846,4 +860,18 @@ void ConnectionWindow::moveConnDown()
         connModel->replace(selIdx, nextConn);
         ui->tableConnections->selectRow(selIdx + 1);
     }
+}
+
+void ConnectionWindow::handlePiFlexConfig()
+{
+    int selIdx = ui->tableConnections->currentIndex().row();
+    if (selIdx < 0) return;
+    CANConnection* conn_p = connModel->getAtIdx(selIdx);
+    if (!conn_p || conn_p->getType() != CANCon::PICOFLEXRAY) return;
+
+    //safe cast: the type is PICOFLEXRAY, so this CANConnection is a PicoFlexRay
+    PicoFlexRay* pf = static_cast<PicoFlexRay*>(conn_p);
+    PiFlexConfigDialog* dlg = new PiFlexConfigDialog(pf, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
 }

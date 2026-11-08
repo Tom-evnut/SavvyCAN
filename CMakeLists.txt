@@ -69,6 +69,7 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     connections/canserver.cpp connections/canserver.h
     connections/picoflexray.cpp connections/picoflexray.h
     connections/picoflexrayparser.cpp connections/picoflexrayparser.h
+    connections/piflexconfigdialog.cpp connections/piflexconfigdialog.h
     connections/connectionwindow.cpp connections/connectionwindow.h
     connections/gvretserial.cpp connections/gvretserial.h
     connections/lawicel_serial.cpp connections/lawicel_serial.h
