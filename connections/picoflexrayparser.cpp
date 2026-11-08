@@ -14,6 +14,7 @@ void PicoFlexRayParser::reset()
 {
     mBuffer.clear();
     mHaveDeviceTime = false;
+    mHaveSeq = false;
 }
 
 qint64 PicoFlexRayParser::unwrapDeviceTime(quint32 deviceUs)
@@ -49,10 +50,33 @@ int PicoFlexRayParser::feed(const char *data, int len, CommFrame::TimeStamp host
     while (pos + 2 <= bufLen)
     {
         const int lenField = buf[pos] | (buf[pos + 1] << 8);
-        const bool v2 = lenField & V2_LEN_FLAG;
+        const bool extended = lenField & V2_LEN_FLAG; //bit 15: a versioned record (format 2 or 3), else stock format 1
         const int bodyLen = lenField & ~V2_LEN_FLAG;
-        const int minLen = v2 ? V2_MIN_BODY_LEN : V1_MIN_BODY_LEN;
-        const int maxLen = v2 ? V2_MAX_BODY_LEN : V1_MAX_BODY_LEN;
+
+        //the prefix (bytes before the FlexRay header) depends on the record version, which is the first body byte
+        int prefix, version;
+        if (extended)
+        {
+            if (pos + 3 > bufLen) break; //need the version byte to tell format 2 from format 3
+            version = buf[pos + 2];
+            if (version == 2) prefix = V2_HEADER_LEN;
+            else if (version == 3) prefix = V3_HEADER_LEN;
+            else
+            {
+                //not a version we know (a false start while resynchronising, or a CAN record we don't handle here)
+                pos++;
+                mBytesSkipped++;
+                continue;
+            }
+        }
+        else
+        {
+            version = 1;
+            prefix = 1;
+        }
+
+        const int minLen = prefix + 5 + 3; //prefix + 5-byte FlexRay header + 3-byte frame CRC, no payload
+        const int maxLen = minLen + CommFrame::FLEXRAY_MAX_PAYLOAD;
         if (bodyLen < minLen || bodyLen > maxLen)
         {
             //not a record start: skip a byte and look again, as pico-flexray's own recorder does
@@ -62,23 +86,10 @@ int PicoFlexRayParser::feed(const char *data, int len, CommFrame::TimeStamp host
         }
 
         const unsigned char *body = buf + pos + 2;
-        if (v2)
-        {
-            if (pos + 3 > bufLen) break;
-            if (body[0] != 2)
-            {
-                //not a version we know (or a false start while resynchronising): SavvyCAN only asks for format 2
-                pos++;
-                mBytesSkipped++;
-                continue;
-            }
-        }
-
         //check the length against the header's payload length as soon as it's here, so a false start doesn't
         //wait for a whole record's worth of data
-        const int headerOffset = v2 ? V2_HEADER_LEN : 1;
-        if (pos + 2 + headerOffset + 3 > bufLen) break;
-        const unsigned char *header = body + headerOffset;
+        if (pos + 2 + prefix + 3 > bufLen) break;
+        const unsigned char *header = body + prefix;
         const int payloadLen = ((header[2] >> 1) & 0x7F) * 2;
         if (minLen + payloadLen != bodyLen)
         {
@@ -89,7 +100,8 @@ int PicoFlexRayParser::feed(const char *data, int len, CommFrame::TimeStamp host
         if (pos + 2 + bodyLen > bufLen) break; //record not complete yet
 
         quint8 source, flags;
-        if (v2)
+        const bool hasDeviceTime = version >= 2; //format 2 and 3 carry a device timestamp; format 1 does not
+        if (hasDeviceTime)
         {
             flags = body[1];
             source = body[2];
@@ -98,7 +110,23 @@ int PicoFlexRayParser::feed(const char *data, int len, CommFrame::TimeStamp host
             //unwrap now, in stream order; mapped onto the host clock once the whole transfer is parsed
             deviceTimes.append(qMakePair(frames.size(), unwrapDeviceTime(deviceUs)));
             if (!mHaveDeviceTime) updateOffset(mDevice64, hostUs); //first ever: a provisional offset to unwrap from
-            mFormat2Records++;
+            if (version == 3)
+            {
+                //format 3 adds a u16 fine clock (10 ns steps; unused, as SavvyCAN keeps microsecond timestamps) and a
+                //u32 device sequence number. A gap in the sequence means the device's USB FIFO dropped frames.
+                const quint32 seq = quint32(body[9]) | (quint32(body[10]) << 8) | (quint32(body[11]) << 16)
+                                    | (quint32(body[12]) << 24);
+                if (mHaveSeq)
+                {
+                    const quint32 lost = seq - mLastSeq - 1;
+                    if (lost > 0 && lost < 0x80000000u) { mSeqGaps++; mSeqFramesLost += lost; }
+                }
+                mLastSeq = seq;
+                mHaveSeq = true;
+                mFormat3Records++;
+            }
+            else
+                mFormat2Records++;
         }
         else
         {
@@ -125,7 +153,7 @@ int PicoFlexRayParser::feed(const char *data, int len, CommFrame::TimeStamp host
         frame.setReceived(true);
         frame.setFlexRayHeader(indicators, headerCrc, frameCrc);
         frame.setFlexRayCrcStatus(flags & V2_FLAG_HEADER_CRC_OK, flags & V2_FLAG_FRAME_CRC_OK);
-        frame.setFlexRayDeviceTimestamp(v2);
+        frame.setFlexRayDeviceTimestamp(hasDeviceTime);
         frame.setTimeStamp(hostSplit ? CommFrame::TimeStamp::fromMicroSeconds(hostUs) : CommFrame::TimeStamp(0, hostUs));
         if (frame.isFlexRayNullFrame()) mNullFrames++;
         if (frame.hasFlexRayCrcError()) mCrcErrorFrames++;
