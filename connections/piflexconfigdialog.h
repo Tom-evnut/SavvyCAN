@@ -40,9 +40,13 @@ private slots:
     void onDeleteSource();
     void onApplySchedule();
     void onClearSchedule();
+    void onSendOverride(); //fire a 0x90 override for the selected injection rule
     void onInjectStatus(QByteArray reply);
     void onSetMode();            //send the selected run mode to the device (0xa4)
     void onDeviceMode(int mode); //device reported its current mode (0xa5); update the UI, don't send
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override; //F1 -> context help
 
 private:
     void buildUi();
