@@ -38,7 +38,11 @@ private slots:
     void onDeleteSource();
     void onApplySchedule();
     void onClearSchedule();
+    void onSendOverride(); //fire a 0x90 override for the selected injection rule
     void onInjectStatus(QByteArray reply);
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override; //F1 -> context help
 
 private:
     void buildUi();

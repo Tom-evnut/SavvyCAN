@@ -406,20 +406,27 @@ QByteArray PicoFlexRay::overridePayloadFor(const CommFrame &frame, QString *erro
         return fail(QString("FlexRay slot ID 0x%1 is out of range (0-0x7FF)").arg(id, 0, 16));
 
     const quint8 base = frame.flexRayCycle(); //first-class cycle count -> rule cycle_base
-    const quint8 crc = e2eCrc8(reinterpret_cast<const unsigned char *>(content.constData()), content.size(), 0xf1);
+    return overridePayload(static_cast<quint16>(id), base, content);
+}
+
+QByteArray PicoFlexRay::overridePayload(quint16 slotId, quint8 cycleBase, const QByteArray &payload)
+{
+    if (slotId > 0x7FFu || payload.isEmpty()) return QByteArray();
+
+    const quint8 crc = e2eCrc8(reinterpret_cast<const unsigned char *>(payload.constData()), payload.size(), 0xf1);
 
     //slice submitted to the firmware: [E2E CRC-8][slot payload]; the firmware checks the CRC, then carves the
     //rule's replace window out of this (so the payload length must match what the firmware rule expects)
     QByteArray slice;
     slice.append(static_cast<char>(crc));
-    slice.append(content);
+    slice.append(payload);
     const quint16 sliceLen = static_cast<quint16>(slice.size());
 
     QByteArray out;
     out.append(static_cast<char>(VENDOR_OUT_OVERRIDE));
-    out.append(static_cast<char>(id & 0xFF));
-    out.append(static_cast<char>((id >> 8) & 0xFF));
-    out.append(static_cast<char>(base));
+    out.append(static_cast<char>(slotId & 0xFF));
+    out.append(static_cast<char>((slotId >> 8) & 0xFF));
+    out.append(static_cast<char>(cycleBase));
     out.append(static_cast<char>(sliceLen & 0xFF));
     out.append(static_cast<char>((sliceLen >> 8) & 0xFF));
     out.append(slice);
@@ -750,6 +757,34 @@ void PicoFlexRay::applySourceParams(PicoFlexRay::SourceParams params)
     saveConfigToSettings();
 #ifdef HAVE_LIBUSB
     if (mHandle) vendorWrite(setSourceParamsPayload(mSourceParams), "set source params");
+#endif
+}
+
+void PicoFlexRay::sendOverride(int slotId, int cycleBase, QByteArray payload)
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "sendOverride", Qt::BlockingQueuedConnection,
+                                  Q_ARG(int, slotId), Q_ARG(int, cycleBase), Q_ARG(QByteArray, payload));
+        return;
+    }
+    if (slotId < 0 || slotId > 0x7FF || payload.isEmpty()) {
+        emit debugOutput("pico-flexray: can't send override (slot ID out of range or empty payload)");
+        return;
+    }
+#ifdef HAVE_LIBUSB
+    if (!mHandle) { emit debugOutput("pico-flexray: not connected, can't send override"); return; }
+    if (!mInjectorEnabled)
+        emit debugOutput("pico-flexray: note - the injector is off (bus is listen-only); this override will be "
+                         "dropped by the device until you un-tick listen-only to enable it");
+    const QByteArray out = overridePayload(static_cast<quint16>(slotId), static_cast<quint8>(cycleBase), payload);
+    if (out.isEmpty() || !vendorWrite(out, "override")) return;
+    //op 0x90 has no device ACK: it only reaches the bus if the firmware has a matching injection rule for this slot
+    //and cycle base. The 0xa3 counters tell the story - matches climb on a hit, drops climb on a miss.
+    emit debugOutput(QString("pico-flexray: sent override for slot 0x%1, cycle-base %2 (%3 payload bytes)")
+                         .arg(slotId, 0, 16).arg(cycleBase).arg(payload.size()));
+    pollInjectStatus(); //refresh the 0xa3 match/drop counters so the editor shows the result
+#else
+    (void)slotId; (void)cycleBase; (void)payload;
 #endif
 }
 
