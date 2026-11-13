@@ -49,8 +49,12 @@ actually inject, you send an override payload that the firmware splices into the
 
 The override is sent for that row's Slot ID and Cycle base. Only the bytes selected by the rule's window
 (Win offset / Win length) actually reach the bus. The override reaches the bus only if the device is in
-Inject mode, has a matching rule, and the injector is enabled (un-tick Listen Only on the bus to enable
-it). Watch "Override matches" in the status line climb when it hits, or "Override drops" when it misses.
+Inject mode, has a matching rule, and the injector is enabled (un-tick Listen Only on the bus to enable it).
+
+Confirming a splice landed: watch the CAPTURE - the injected bytes must appear on the wire in the target
+slot. The status counters do NOT prove a splice. "Rule matches" counts every forwarded frame that matches
+an applied rule whether or not any override is stored, so it climbs on matching traffic even with no override
+sent; it cannot tell you a splice was applied. The capture is the only confirmation.
 
 Generator schedule
 ==============================
@@ -72,9 +76,12 @@ The status line polls the device about once a second and shows:
 * Rules on device - how many injection rules the device currently holds.
 * Source slots    - how many generator slots the device currently holds.
 * Generator       - whether the source schedule is running.
-* Override matches - total overrides that matched a rule and were applied.
+* Rule matches    - total forwarded frames that matched an applied rule. This counts RULE hits, NOT overrides
+                    applied: it climbs on matching traffic even when no override has been sent, so a climbing
+                    number does not mean a splice happened. Confirm a splice from the capture.
 * Override drops   - total overrides dropped (no matching rule, injector off, or bad length).
 * Source drops     - generator slots the device rejected (for example an odd-length payload).
 
-Use these counters to confirm a rule took and whether your overrides are landing: after "Send override",
-"Override matches" should climb on a hit and "Override drops" on a miss.
+Use "Rules on device" to confirm a rule took (it should match the number you applied). To confirm an override
+actually spliced, look at the CAPTURE - the status counters cannot distinguish an applied splice from an
+ordinary rule match.

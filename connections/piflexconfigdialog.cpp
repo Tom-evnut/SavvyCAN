@@ -403,10 +403,12 @@ void PiFlexConfigDialog::onInjectStatus(QByteArray reply)
         mStatusLine->setText("Device returned an unrecognised status reply.");
         return;
     }
+    //"Rule matches" counts forwarded frames that matched an applied rule - NOT overrides applied (a splice
+    //increments no counter). Confirm a splice landed from the capture (bytes on the wire), not this number.
     mStatusLine->setText(QString(
         "<b>Injector:</b> %1 &nbsp;&nbsp; <b>Rules on device:</b> %2 &nbsp;&nbsp; "
         "<b>Source slots:</b> %3 &nbsp;&nbsp; <b>Generator:</b> %4<br>"
-        "<b>Override matches:</b> %5 &nbsp;&nbsp; <b>Override drops:</b> %6 &nbsp;&nbsp; "
+        "<b>Rule matches:</b> %5 &nbsp;&nbsp; <b>Override drops:</b> %6 &nbsp;&nbsp; "
         "<b>Source drops:</b> %7")
             .arg(st.injectorEnabled ? "enabled" : "disabled")
             .arg(st.ruleCount)

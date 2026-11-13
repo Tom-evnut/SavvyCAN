@@ -92,7 +92,8 @@ public:
         quint8  sourceSlotCount = 0;    //generator slots the device currently holds
         bool    sourceRunning = false;
         quint8  sourceSlotDrops = 0;    //generator slots the device rejected (e.g. odd-length payload)
-        quint32 totalMatches = 0;       //0x90 overrides that matched a rule
+        quint32 totalMatches = 0;       //forwarded frames that matched an applied rule (NOT overrides applied -
+                                        //a splice increments no counter; confirm a splice from the capture)
         quint32 totalDrops = 0;         //0x90 overrides dropped (no matching rule / bad length)
     };
 
