@@ -1,5 +1,7 @@
 #include "piflexconfigdialog.h"
+#include "helpwindow.h"
 
+#include <QKeyEvent>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
@@ -18,7 +20,7 @@
 namespace {
 
 //Rule table columns
-enum { COL_R_SLOT = 0, COL_R_CYCLE_BASE, COL_R_CYCLE_MASK, COL_R_WIN_OFF, COL_R_WIN_LEN, COL_R_COUNT };
+enum { COL_R_SLOT = 0, COL_R_CYCLE_BASE, COL_R_CYCLE_MASK, COL_R_WIN_OFF, COL_R_WIN_LEN, COL_R_OVERRIDE, COL_R_COUNT };
 //Source table columns
 enum { COL_S_SLOT = 0, COL_S_FR1, COL_S_FR2, COL_S_PAYLOAD, COL_S_TRACK, COL_S_COUNT };
 
@@ -76,6 +78,7 @@ PiFlexConfigDialog::PiFlexConfigDialog(PicoFlexRay *conn, QWidget *parent) :
     setWindowFlags(windowFlags() | Qt::Window);
     buildUi();
     loadFromSettings();
+    installEventFilter(this); //F1 context help (dialog is created fresh each open, so no re-install needed)
 
     if (mConn) {
         //live status updates; auto-disconnected when either object dies (connect with the dialog as context)
@@ -94,18 +97,24 @@ void PiFlexConfigDialog::buildUi()
     QVBoxLayout *ruleLayout = new QVBoxLayout(ruleBox);
     mRuleTable = new QTableWidget(0, COL_R_COUNT, ruleBox);
     mRuleTable->setHorizontalHeaderLabels(
-        {"Slot ID", "Cycle base", "Cycle mask", "Win offset", "Win length"});
+        {"Slot ID", "Cycle base", "Cycle mask", "Win offset", "Win length", "Override payload (hex)"});
     mRuleTable->horizontalHeader()->setStretchLastSection(true);
     mRuleTable->setToolTip("A frame matches when its slot ID equals Slot ID and (cycle & mask) == (base & mask).\n"
-                           "Cycle mask 0 matches any cycle. Numbers may be decimal or 0x-hex.");
+                           "Cycle mask 0 matches any cycle. Numbers may be decimal or 0x-hex.\n"
+                           "Override payload: even-length hex bytes to fire with Send override (uses this row's\n"
+                           "slot ID + cycle base). The window offset/length select which of these bytes reach the bus.");
     ruleLayout->addWidget(mRuleTable);
     QHBoxLayout *ruleBtns = new QHBoxLayout();
     QPushButton *addRule = new QPushButton("Add rule", ruleBox);
     QPushButton *delRule = new QPushButton("Delete selected", ruleBox);
+    QPushButton *sendOverride = new QPushButton("Send override", ruleBox);
     QPushButton *applyRules = new QPushButton("Apply rules to device", ruleBox);
     QPushButton *clearRules = new QPushButton("Clear device rules", ruleBox);
+    sendOverride->setToolTip("Fire a 0x90 override for the selected rule (its slot ID, cycle base and the\n"
+                             "Override payload). Watch 'Override matches' below climb when it hits the rule.");
     ruleBtns->addWidget(addRule);
     ruleBtns->addWidget(delRule);
+    ruleBtns->addWidget(sendOverride);
     ruleBtns->addStretch();
     ruleBtns->addWidget(applyRules);
     ruleBtns->addWidget(clearRules);
@@ -114,6 +123,7 @@ void PiFlexConfigDialog::buildUi()
 
     connect(addRule, &QPushButton::clicked, this, &PiFlexConfigDialog::onAddRule);
     connect(delRule, &QPushButton::clicked, this, &PiFlexConfigDialog::onDeleteRule);
+    connect(sendOverride, &QPushButton::clicked, this, &PiFlexConfigDialog::onSendOverride);
     connect(applyRules, &QPushButton::clicked, this, &PiFlexConfigDialog::onApplyRules);
     connect(clearRules, &QPushButton::clicked, this, &PiFlexConfigDialog::onClearRules);
 
@@ -211,6 +221,7 @@ void PiFlexConfigDialog::addRuleRow(const PicoFlexRay::InjectRule &rule)
     mRuleTable->setItem(row, COL_R_CYCLE_MASK, new QTableWidgetItem(QString("0x%1").arg(rule.cycleMask, 0, 16)));
     mRuleTable->setItem(row, COL_R_WIN_OFF, new QTableWidgetItem(QString::number(rule.winOffset)));
     mRuleTable->setItem(row, COL_R_WIN_LEN, new QTableWidgetItem(QString::number(rule.winLength)));
+    mRuleTable->setItem(row, COL_R_OVERRIDE, new QTableWidgetItem(QString())); //transient; filled before Send override
 }
 
 void PiFlexConfigDialog::addSourceRow(const PicoFlexRay::SourceSlot &slot)
@@ -313,6 +324,41 @@ void PiFlexConfigDialog::onClearRules()
     mConn->requestInjectStatus();
 }
 
+void PiFlexConfigDialog::onSendOverride()
+{
+    if (!mConn) return;
+    const int row = mRuleTable->currentRow();
+    if (row < 0) {
+        QMessageBox::information(this, "Send override", "Select an injection rule row first.");
+        return;
+    }
+    auto cell = [&](int col) { QTableWidgetItem *it = mRuleTable->item(row, col); return it ? it->text() : QString(); };
+
+    uint slot = 0, base = 0;
+    if (!parseNum(cell(COL_R_SLOT), slot) || slot > 0x7FF) {
+        QMessageBox::warning(this, "Send override", "This rule's slot ID is invalid (0-0x7FF).");
+        return;
+    }
+    if (!parseNum(cell(COL_R_CYCLE_BASE), base) || base > 0xFF) {
+        QMessageBox::warning(this, "Send override", "This rule's cycle base is invalid (0-255).");
+        return;
+    }
+    QByteArray payload;
+    if (!parsePayload(cell(COL_R_OVERRIDE), payload) || payload.isEmpty()) {
+        QMessageBox::warning(this, "Send override", "Enter the override payload as hex bytes (e.g. AA BB CC DD).");
+        return;
+    }
+    //FlexRay payloads are an even number of bytes (header length counts 2-byte words), so an odd override can't map
+    //onto a slot; the device would reject it.
+    if ((payload.size() % 2) != 0) {
+        QMessageBox::warning(this, "Send override", "The override payload must be an even number of bytes.");
+        return;
+    }
+
+    mConn->sendOverride(static_cast<int>(slot), static_cast<int>(base), payload);
+    mConn->requestInjectStatus(); //refresh the match/drop counters
+}
+
 void PiFlexConfigDialog::onAddSource()
 {
     //default a new slot to a clean, valid payload: FlexRay payloads are an even number of bytes (the header length
@@ -357,10 +403,12 @@ void PiFlexConfigDialog::onInjectStatus(QByteArray reply)
         mStatusLine->setText("Device returned an unrecognised status reply.");
         return;
     }
+    //"Rule matches" counts forwarded frames that matched an applied rule - NOT overrides applied (a splice
+    //increments no counter). Confirm a splice landed from the capture (bytes on the wire), not this number.
     mStatusLine->setText(QString(
         "<b>Injector:</b> %1 &nbsp;&nbsp; <b>Rules on device:</b> %2 &nbsp;&nbsp; "
         "<b>Source slots:</b> %3 &nbsp;&nbsp; <b>Generator:</b> %4<br>"
-        "<b>Override matches:</b> %5 &nbsp;&nbsp; <b>Override drops:</b> %6 &nbsp;&nbsp; "
+        "<b>Rule matches:</b> %5 &nbsp;&nbsp; <b>Override drops:</b> %6 &nbsp;&nbsp; "
         "<b>Source drops:</b> %7")
             .arg(st.injectorEnabled ? "enabled" : "disabled")
             .arg(st.ruleCount)
@@ -369,4 +417,16 @@ void PiFlexConfigDialog::onInjectStatus(QByteArray reply)
             .arg(st.totalMatches)
             .arg(st.totalDrops)
             .arg(st.sourceSlotDrops));
+}
+
+bool PiFlexConfigDialog::eventFilter(QObject *obj, QEvent *event)
+{
+    if (event->type() == QEvent::KeyRelease) {
+        QKeyEvent *keyEvent = static_cast<QKeyEvent *>(event);
+        if (keyEvent->key() == Qt::Key_F1) {
+            HelpWindow::getRef()->showHelp("piflexconfig.md");
+            return true;
+        }
+    }
+    return QDialog::eventFilter(obj, event);
 }

@@ -92,7 +92,8 @@ public:
         quint8  sourceSlotCount = 0;    //generator slots the device currently holds
         bool    sourceRunning = false;
         quint8  sourceSlotDrops = 0;    //generator slots the device rejected (e.g. odd-length payload)
-        quint32 totalMatches = 0;       //0x90 overrides that matched a rule
+        quint32 totalMatches = 0;       //forwarded frames that matched an applied rule (NOT overrides applied -
+                                        //a splice increments no counter; confirm a splice from the capture)
         quint32 totalDrops = 0;         //0x90 overrides dropped (no matching rule / bad length)
     };
 
@@ -135,6 +136,12 @@ public:
      */
     static QByteArray overridePayloadFor(const CommFrame &frame, QString *error = nullptr);
 
+    //Builds the same op-0x90 bulk-OUT message as overridePayloadFor, straight from a slot ID, cycle base and the
+    //slot payload (no CommFrame / isFlexRay() guard). This is what the config editor's "Send override" uses to fire
+    //an injection directly, and it is exactly what overridePayloadFor produces for the same values. Returns an empty
+    //array if slotId is out of range (>0x7FF) or payload is empty.
+    static QByteArray overridePayload(quint16 slotId, quint8 cycleBase, const QByteArray &payload);
+
     //op-0x91 payload: [0x91][enabled]
     static QByteArray injectorEnablePayload(bool enabled);
 
@@ -160,6 +167,10 @@ public slots:
     void clearSourceSchedule();
     //Push just the generator timing / run-stop (op 0x96) without touching the slot table.
     void applySourceParams(PicoFlexRay::SourceParams params);
+    //Fire one injection override (op 0x90) directly: builds [E2E-CRC8][payload] for slotId/cycleBase and writes it
+    //to the bulk-OUT endpoint, bypassing the CAN-typed Send Frames path. It only reaches the bus if the firmware
+    //has a matching injection rule and the injector is enabled; watch the 0xa3 match/drop counters for the result.
+    void sendOverride(int slotId, int cycleBase, QByteArray payload);
     //Request an immediate 0xa3 status read (the connection also polls once a second while connected).
     void requestInjectStatus();
 
