@@ -12,6 +12,7 @@
 #include <QSpinBox>
 #include <QCheckBox>
 #include <QLabel>
+#include <QComboBox>
 #include <QMessageBox>
 #include <QSettings>
 #include <QStringList>
@@ -83,8 +84,10 @@ PiFlexConfigDialog::PiFlexConfigDialog(PicoFlexRay *conn, QWidget *parent) :
     if (mConn) {
         //live status updates; auto-disconnected when either object dies (connect with the dialog as context)
         connect(mConn, &PicoFlexRay::injectStatus, this, &PiFlexConfigDialog::onInjectStatus);
+        connect(mConn, &PicoFlexRay::deviceMode, this, &PiFlexConfigDialog::onDeviceMode);
         connect(mConn.data(), &QObject::destroyed, this, &QWidget::close);
         mConn->requestInjectStatus(); //ask for an immediate reading
+        mConn->requestMode();         //read (never set) the device's current run mode
     }
 }
 
@@ -92,8 +95,30 @@ void PiFlexConfigDialog::buildUi()
 {
     QVBoxLayout *root = new QVBoxLayout(this);
 
+    // --- Run mode --------------------------------------------------------------------------------------------
+    QGroupBox *modeBox = new QGroupBox("Run mode", this);
+    QHBoxLayout *modeLayout = new QHBoxLayout(modeBox);
+    mModeCombo = new QComboBox(modeBox);
+    mModeCombo->addItem("Sniff", static_cast<int>(PicoFlexRay::MODE_SNIFF));
+    mModeCombo->addItem("Bridge", static_cast<int>(PicoFlexRay::MODE_BRIDGE));
+    mModeCombo->addItem("Inject", static_cast<int>(PicoFlexRay::MODE_INJECT));
+    mModeCombo->addItem("Source", static_cast<int>(PicoFlexRay::MODE_SOURCE));
+    mModeCombo->setToolTip("Pick a run mode and press Set mode to switch the device. Nothing is sent on connect;\n"
+                           "the mode only changes on your explicit Set mode. Injection rules apply in Inject mode,\n"
+                           "the generator schedule in Source mode.");
+    QPushButton *setModeBtn = new QPushButton("Set mode", modeBox);
+    mModeDeviceLabel = new QLabel("Device mode: unknown", modeBox);
+    modeLayout->addWidget(new QLabel("Mode:", modeBox));
+    modeLayout->addWidget(mModeCombo);
+    modeLayout->addWidget(setModeBtn);
+    modeLayout->addStretch();
+    modeLayout->addWidget(mModeDeviceLabel);
+    root->addWidget(modeBox);
+    connect(setModeBtn, &QPushButton::clicked, this, &PiFlexConfigDialog::onSetMode);
+
     // --- Injection rules -------------------------------------------------------------------------------------
     QGroupBox *ruleBox = new QGroupBox("Injection rules", this);
+    mRuleBox = ruleBox;
     QVBoxLayout *ruleLayout = new QVBoxLayout(ruleBox);
     mRuleTable = new QTableWidget(0, COL_R_COUNT, ruleBox);
     mRuleTable->setHorizontalHeaderLabels(
@@ -111,7 +136,8 @@ void PiFlexConfigDialog::buildUi()
     QPushButton *applyRules = new QPushButton("Apply rules to device", ruleBox);
     QPushButton *clearRules = new QPushButton("Clear device rules", ruleBox);
     sendOverride->setToolTip("Fire a 0x90 override for the selected rule (its slot ID, cycle base and the\n"
-                             "Override payload). Watch 'Override matches' below climb when it hits the rule.");
+                             "Override payload). The override splices only on the cycle equal to Cycle base.\n"
+                             "Confirm the splice from the capture - 'Rule matches' counts rule hits, not splices.");
     ruleBtns->addWidget(addRule);
     ruleBtns->addWidget(delRule);
     ruleBtns->addWidget(sendOverride);
@@ -129,6 +155,7 @@ void PiFlexConfigDialog::buildUi()
 
     // --- Generator schedule ----------------------------------------------------------------------------------
     QGroupBox *srcBox = new QGroupBox("Generator schedule", this);
+    mSrcBox = srcBox;
     QVBoxLayout *srcLayout = new QVBoxLayout(srcBox);
     mSourceTable = new QTableWidget(0, COL_S_COUNT, srcBox);
     mSourceTable->setHorizontalHeaderLabels(
@@ -417,6 +444,43 @@ void PiFlexConfigDialog::onInjectStatus(QByteArray reply)
             .arg(st.totalMatches)
             .arg(st.totalDrops)
             .arg(st.sourceSlotDrops));
+}
+
+void PiFlexConfigDialog::onSetMode()
+{
+    if (!mConn) return;
+    const int mode = mModeCombo->currentData().toInt();
+    mConn->setMode(mode); //explicit user choice: this is the only path that sends 0xa4
+    //setMode reads the mode back and emits deviceMode, which refreshes the label + gating.
+}
+
+void PiFlexConfigDialog::onDeviceMode(int mode)
+{
+    if (!PicoFlexRay::isValidMode(mode)) {
+        //firmware without mode support: show that, leave the selector disabled, and keep both config boxes usable
+        //(the pre-mode inject/source paths still work on that firmware)
+        mModeDeviceLabel->setText("Device mode: not supported by this firmware");
+        if (mModeCombo) mModeCombo->setEnabled(false);
+        if (mRuleBox) mRuleBox->setEnabled(true);
+        if (mSrcBox) mSrcBox->setEnabled(true);
+        return;
+    }
+    mModeDeviceLabel->setText(QString("Device mode: <b>%1</b>").arg(PicoFlexRay::modeName(mode)));
+    mModeDeviceLabel->setTextFormat(Qt::RichText);
+    if (mModeCombo) {
+        mModeCombo->setEnabled(true);
+        //reflect the device's actual mode (no combo signal is wired to sending, so this won't re-send)
+        const int idx = mModeCombo->findData(mode);
+        if (idx >= 0) mModeCombo->setCurrentIndex(idx);
+    }
+    applyModeGating(mode);
+}
+
+void PiFlexConfigDialog::applyModeGating(int mode)
+{
+    //Guide the user: injection rules are only relevant in INJECT mode, the generator schedule only in SOURCE mode.
+    if (mRuleBox) mRuleBox->setEnabled(mode == PicoFlexRay::MODE_INJECT);
+    if (mSrcBox)  mSrcBox->setEnabled(mode == PicoFlexRay::MODE_SOURCE);
 }
 
 bool PiFlexConfigDialog::eventFilter(QObject *obj, QEvent *event)

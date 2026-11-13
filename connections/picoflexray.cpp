@@ -243,6 +243,7 @@ bool PicoFlexRay::openDevice()
     mLastStatusSummary.clear();
     if (mStatusTimer) mStatusTimer->start();
     pollInjectStatus();       //one read now so the editor shows device state immediately
+    pollMode();               //read (never set) the device's current run mode so the editor shows it
     emit debugOutput("pico-flexray: connected");
     return true;
 #else
@@ -823,5 +824,73 @@ void PicoFlexRay::pollInjectStatus()
         emit debugOutput(summary);
         mLastStatusSummary = summary;
     }
+#endif
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Runtime mode selector (0xa4 SET_MODE control OUT, 0xa5 GET_MODE control IN). Frozen contract, identical to the
+// unified firmware; modelled on the existing 0xa2 GET_TS_INFO / 0xa3 status control transfers.
+// ---------------------------------------------------------------------------------------------------------------
+
+QString PicoFlexRay::modeName(int mode)
+{
+    switch (mode) {
+    case MODE_SNIFF:  return "Sniff";
+    case MODE_BRIDGE: return "Bridge";
+    case MODE_INJECT: return "Inject";
+    case MODE_SOURCE: return "Source";
+    default:          return "unknown";
+    }
+}
+
+void PicoFlexRay::setMode(int mode)
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "setMode", Qt::BlockingQueuedConnection, Q_ARG(int, mode));
+        return;
+    }
+    if (!isValidMode(mode)) {
+        emit debugOutput(QString("pico-flexray: ignoring invalid mode %1").arg(mode));
+        return;
+    }
+#ifdef HAVE_LIBUSB
+    if (!mHandle) { emit debugOutput("pico-flexray: not connected, can't set mode"); return; }
+    //0xa4 SET_MODE: vendor control OUT, wValue = mode (0..3), no data stage
+    const uint8_t vendorOut = LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE;
+    int rc = libusb_control_transfer(mHandle, vendorOut, PICOFLEX_SET_MODE,
+                                     static_cast<uint16_t>(mode), 0, nullptr, 0, WRITE_TIMEOUT_MS);
+    if (rc < 0) {
+        emit debugOutput(QString("pico-flexray: SET_MODE(%1) failed (%2)").arg(modeName(mode)).arg(libusb_error_name(rc)));
+        return;
+    }
+    emit debugOutput(QString("pico-flexray: set mode to %1").arg(modeName(mode)));
+    pollMode(); //read it back so the editor reflects the device's actual mode
+#else
+    (void)mode;
+#endif
+}
+
+void PicoFlexRay::requestMode()
+{
+    if (!inWorkerThread()) {
+        QMetaObject::invokeMethod(this, "requestMode", Qt::QueuedConnection);
+        return;
+    }
+    pollMode();
+}
+
+void PicoFlexRay::pollMode()
+{
+#ifdef HAVE_LIBUSB
+    if (!mHandle) return;
+    //0xa5 GET_MODE: vendor control IN, returns one byte = active mode. Firmware without it stalls the request.
+    const uint8_t vendorIn = LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_DEVICE;
+    unsigned char buf[1] = {0};
+    int rc = libusb_control_transfer(mHandle, vendorIn, PICOFLEX_GET_MODE, 0, 0, buf, sizeof(buf), 200);
+    if (rc < 1) { emit deviceMode(-1); return; } //unsupported / no reply
+    const int mode = buf[0];
+    emit deviceMode(isValidMode(mode) ? mode : -1);
+#else
+    emit deviceMode(-1);
 #endif
 }

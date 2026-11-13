@@ -18,10 +18,15 @@ The device runs in one of four modes:
 * Inject  - the injection rules below are active; matching overrides you send splice into live frames.
 * Source  - the generator schedule below is active; the device transmits those slots on its own.
 
-Pick a mode and click "Set mode" to switch the device. The current mode is read from the device when
-you connect and shown as "Device mode"; it is never changed automatically on connect - only when you
-click Set mode. The Injection rules section is relevant in Inject mode and the Generator schedule
-section in Source mode.
+Pick a mode in the "Run mode" box and click "Set mode" to switch the device. The current mode is read
+from the device when you connect and shown as "Device mode"; it is never changed automatically on
+connect - only when you click Set mode.
+
+To guide you, the Injection rules box (including Send override) is enabled only in Inject mode and the
+Generator schedule box only in Source mode; the other is greyed out. In Sniff and Bridge neither config
+box applies. Firmware that doesn't support the runtime mode request shows "Device mode: not supported"
+and disables the selector, but leaves both config boxes usable so the pre-mode inject/source paths still
+work.
 
 Injection rules
 ==============================
