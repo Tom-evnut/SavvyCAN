@@ -28,9 +28,12 @@ Injection rules
 An injection rule tells the firmware which captured frame to modify. Each rule has:
 
 * Slot ID    - the FlexRay slot (0 - 0x7FF).
-* Cycle base - the cycle value to match.
-* Cycle mask - which cycle bits must match; 0 matches any cycle. A frame matches when
-               (frame cycle AND mask) == (cycle base AND mask).
+* Cycle base - the single cycle a sent override splices on. An override carries this one cycle value and
+               the firmware matches it exactly, so an override lands ONLY on frames whose cycle equals
+               Cycle base (see "Sending an override" below).
+* Cycle mask - which cycle bits the rule-match COUNTER uses; 0 counts any cycle. The count uses
+               (frame cycle AND mask) == (cycle base AND mask). This governs the "Rule matches" count
+               only - it does NOT widen where an override splices.
 * Win offset - where in the slot payload the replacement window starts.
 * Win length - how many bytes of the window actually reach the bus.
 
@@ -50,6 +53,11 @@ actually inject, you send an override payload that the firmware splices into the
 The override is sent for that row's Slot ID and Cycle base. Only the bytes selected by the rule's window
 (Win offset / Win length) actually reach the bus. The override reaches the bus only if the device is in
 Inject mode, has a matching rule, and the injector is enabled (un-tick Listen Only on the bus to enable it).
+
+The override splices ONLY on the single cycle equal to the rule row's "Cycle base": the override carries
+that one cycle value and the firmware matches it exactly (the rule's "Cycle mask" does not apply to
+overrides). Known limitation: to override a slot on every cycle you must send one override per cycle
+(Cycle base 0 through 63) - there is no any-cycle override on the current firmware.
 
 Confirming a splice landed: watch the CAPTURE - the injected bytes must appear on the wire in the target
 slot. The status counters do NOT prove a splice. "Rule matches" counts every forwarded frame that matches
