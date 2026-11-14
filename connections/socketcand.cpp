@@ -114,8 +114,12 @@ void SocketCANd::sendStringToTCP(const char* data, int busNum)
 void SocketCANd::piStarted()
 {
     connectDevice();
-    checkConnection();
     mTimer.start();
+    // Defer the first checkConnection() to give the TCP connection time to establish.
+    // connectToHost() is asynchronous: immediately after it returns the socket is in
+    // ConnectingState, not ConnectedState. Calling checkConnection() right away causes
+    // a false NOT_CONNECTED status and an unnecessary socket recreation loop.
+    QTimer::singleShot(1000, this, SLOT(checkConnection()));
 }
 
 
@@ -186,7 +190,7 @@ bool SocketCANd::piSendFrame(const CommFrame& frame)
     QString sendStr = "< send " + QString::number(ID, 16) + " " + QString::number(frame.payload().length()) + " ";
     for (c = 0; c < frame.payload().length(); c++)
     {
-       sendStr.append(QString::number(frame.payload()[c], 16) + " ");
+       sendStr.append(QString::number(static_cast<unsigned char>(frame.payload()[c]), 16) + " ");
     }
     sendStr.append(">");
     std::string str = sendStr.toStdString();

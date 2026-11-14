@@ -26,8 +26,11 @@ struct CommFrame
         constexpr TimeStamp(qint64 s = 0, qint64 usec = 0) noexcept
             : secs(s), usecs(usec) {}
 
+        // SavvyCAN keeps the whole timestamp in microSeconds() and leaves seconds() at 0: the frame view,
+        // the log writers, the graphs and the RE tools only read microSeconds(). Splitting the value into
+        // seconds + remainder here made system clock timestamps wrap every second (#834, #965, #1075).
         constexpr static TimeStamp fromMicroSeconds(qint64 usec) noexcept
-        { return TimeStamp(usec / 1000000, usec % 1000000); }
+        { return TimeStamp(0, usec); }
 
         constexpr qint64 seconds() const noexcept { return secs; }
         constexpr qint64 microSeconds() const noexcept { return usecs; }
@@ -327,6 +330,13 @@ public:
         frameCount = cnt;
     }
 
+    constexpr quint64 getCaptureOrder() const noexcept {return captureOrder;}
+
+    constexpr void setCaptureOrder(quint64 order) noexcept
+    {
+        captureOrder = order;
+    }
+
     constexpr bool hasFlexibleDataRateFormat() const noexcept { return (isFlexibleDataRate & 0x1); }
     //keeps the frame type in step with the FD flag (see setFrameType())
     constexpr void setFlexibleDataRateFormat(bool isFlexibleData) noexcept
@@ -443,6 +453,7 @@ private:
     int bus;
     uint64_t timedelta;
     uint32_t frameCount; //used in overwrite mode
+    uint64_t captureOrder = 0; //capture sequence stamped by the model; tie-breaks equal timestamps, not CAN data
 
     //FlexRay header details (see setFlexRayHeader()), packed: flags in bits 0-4, indicators 5-9,
     //header CRC 10-20, frame CRC 21-44

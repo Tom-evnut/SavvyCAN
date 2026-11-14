@@ -7,6 +7,7 @@
 #include <QBrush>
 #include <QDateTime>
 #include <QSettings>
+#include <algorithm>
 #include "utility.h"
 
 CommFrameModel::~CommFrameModel()
@@ -92,6 +93,7 @@ CommFrameModel::CommFrameModel(QObject *parent)
     timeFormat =  "MMM-dd HH:mm:ss.zzz";
     sortDirAsc = false;
     bytesPerLine = 8;
+    nextCaptureOrder = 0;
 }
 
 void CommFrameModel::setBytesPerLine(int bpl)
@@ -387,7 +389,19 @@ void CommFrameModel::qSortCommFrameDesc(QVector<CommFrame> *frames, Column colum
 void CommFrameModel::sortByColumn(int column)
 {
     sortDirAsc = !sortDirAsc;
-    if (sortDirAsc) qSortCommFrameAsc(&filteredFrames, Column(column), 0, filteredFrames.count()-1);
+    if (Column(column) == Column::TimeStamp && !overwriteDups)
+    {
+        //Equal timestamps must keep capture order instead of inheriting the previous sort. The custom
+        //quicksort below is not stable, so sort on (timestamp, captureOrder) here. (adapted from upstream #1164)
+        const bool asc = sortDirAsc;
+        std::sort(filteredFrames.begin(), filteredFrames.end(), [asc](const CommFrame &a, const CommFrame &b) {
+            const uint64_t at = static_cast<uint64_t>(a.timeStamp().microSeconds());
+            const uint64_t bt = static_cast<uint64_t>(b.timeStamp().microSeconds());
+            if (at == bt) return a.getCaptureOrder() < b.getCaptureOrder();
+            return asc ? at < bt : at > bt;
+        });
+    }
+    else if (sortDirAsc) qSortCommFrameAsc(&filteredFrames, Column(column), 0, filteredFrames.count()-1);
     else qSortCommFrameDesc(&filteredFrames, Column(column), 0, filteredFrames.count()-1);
 
     mutex.lock();
@@ -875,6 +889,7 @@ void CommFrameModel::addFrame(const CommFrame& frame, bool autoRefresh = false)
     mutex.lock();
     CommFrame tempFrame;
     tempFrame = frame;
+    tempFrame.setCaptureOrder(nextCaptureOrder++); //stable tie-breaker so equal-timestamp rows keep capture order
 
     tempFrame.setTimeStamp(CommFrame::TimeStamp(0, tempFrame.timeStamp().microSeconds() - timeOffset));
 
@@ -1130,6 +1145,7 @@ void CommFrameModel::clearFrames()
     this->beginResetModel();
     frames.clear();
     filteredFrames.clear();
+    nextCaptureOrder = 0;
     if(filtersPersistDuringClear == false)
     {
         filters.clear();

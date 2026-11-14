@@ -110,6 +110,7 @@ private:
     bool interpretFrames; //should we use the dbcHandler?
     bool overwriteDups; //should we display all frames or only the newest for each ID?
     bool filtersPersistDuringClear;
+    uint64_t nextCaptureOrder; //monotonic counter stamped onto each added frame (capture order tie-breaker)
     QString timeFormat;
     TimeStyle timeStyle;
     bool useHexMode;
