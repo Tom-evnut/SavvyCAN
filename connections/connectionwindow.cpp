@@ -369,14 +369,13 @@ void ConnectionWindow::handleResetConn()
     }
 
 
-    /* stop and delete connection */
+    /* Stop before opening a replacement on the same port. */
     conn_p->stop();
 
-    conn_p = nullptr;
-
-    conn_p = create(type, port, driver, serSpeed, busSpeed, canFd, dataRate, listenOnly, active);
-    if (conn_p) {
-        connModel->replace(selIdx, conn_p);
+    CANConnection* replacement = create(type, port, driver, serSpeed, busSpeed, canFd, dataRate, listenOnly, active);
+    if (replacement) {
+        connModel->replace(selIdx, replacement);
+        delete conn_p; //replace() no longer deletes the displaced connection; we own it now
     }
 }
 

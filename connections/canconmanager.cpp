@@ -86,19 +86,18 @@ void CANConManager::remove(CANConnection* pConn_p)
     mConnHadFrames.remove(pConn_p);
 }
 
+//Changes registration only; the caller owns the displaced connection's shutdown and deletion.
+//(Previously this deleted the displaced connection here, which corrupted a reorder that replaces the
+//same two connections in sequence - the first delete freed an object the second call still referenced.)
 void CANConManager::replace(int idx, CANConnection* pConn_p)
 {
-    CANConnection *original;
-    {
-        QWriteLocker locker(&mConnsLock);
-        original = mConns[idx];
-        mConns.replace(idx, pConn_p);
-        mConnFrameCount.remove(original);
-        mConnHadFrames.remove(original);
-        mConnFrameCount[pConn_p] = 0;
-        mConnHadFrames[pConn_p]  = false;
-    }
-    delete original; original = NULL; //outside the lock, in case its destructor calls back into the manager
+    QWriteLocker locker(&mConnsLock);
+    CANConnection *original = mConns[idx];
+    mConns.replace(idx, pConn_p);
+    mConnFrameCount.remove(original);
+    mConnHadFrames.remove(original);
+    mConnFrameCount[pConn_p] = 0;
+    mConnHadFrames[pConn_p]  = false;
 }
 
 //Get total number of buses currently registered with the program
