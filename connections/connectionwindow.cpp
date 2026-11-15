@@ -38,6 +38,9 @@ ConnectionWindow::ConnectionWindow(QWidget *parent) :
     ui->tableConnections->setColumnWidth(3, 100);
     ui->tableConnections->setColumnWidth(4, 70);
     ui->tableConnections->setColumnWidth(5, 200);
+    ui->tableConnections->setColumnWidth(6, 140);
+    //the Label column is editable (double-click or F2); every other column stays read-only via flags()
+    ui->tableConnections->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
     QHeaderView *HorzHdr = ui->tableConnections->horizontalHeader();
     HorzHdr->setStretchLastSection(true); //causes the data column to automatically fill the tableview
 
