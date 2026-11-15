@@ -4,6 +4,7 @@
 #include <QSerialPortInfo>
 #include <QCanBus>
 #include <QCanBusDeviceInfo>
+#include <QSettings>
 #include <algorithm>
 
 // --- serial adapter identification -------------------------------------------------------------
@@ -20,6 +21,8 @@ DetectedDevice DeviceScanner::identifySerial(quint16 vid, quint16 pid,
     DetectedDevice d;
     d.location = portName;
     d.portArg = portName;
+    //matches GVRET/LAWICEL getLabelKey(): USB serial when reported, else the port name
+    d.labelKey = serialNumber.isEmpty() ? portName : serialNumber;
 
     QString hay = (description + " " + manufacturer).toLower();
     auto has = [&hay](const char *s){ return hay.contains(QLatin1String(s)); };
@@ -83,6 +86,7 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
             d.detail = QStringLiteral("FlexRay over USB");
             d.type = CANCon::PICOFLEXRAY;
             d.portArg = serial;
+            d.labelKey = serial; //getLabelKey() for pico-flexray is the USB serial (its port)
             d.confidence = DetectedDevice::Certain;
             out.append(d);
         }
@@ -109,6 +113,8 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
             d.type = CANCon::SERIALBUS;
             d.driver = plugin;
             d.portArg = info.name();
+            //matches SerialBus getLabelKey(): USB serial when the plugin reports one, else the channel name
+            d.labelKey = info.serialNumber().isEmpty() ? info.name() : info.serialNumber();
             d.confidence = DetectedDevice::Certain;
             out.append(d);
         }
@@ -130,6 +136,7 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
         d.detail = QStringLiteral("network GVRET (UDP broadcast)");
         d.type = CANCon::REMOTE;
         d.portArg = ip;
+        d.labelKey = ip; //getLabelKey() for a network connection is its host/port string
         d.confidence = DetectedDevice::Certain;
         out.append(d);
     }
@@ -140,8 +147,23 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
         d.detail = QStringLiteral("network socketcand (UDP broadcast)");
         d.type = CANCon::KAYAK;
         d.portArg = host;
+        d.labelKey = host;
         d.confidence = DetectedDevice::Certain;
         out.append(d);
+    }
+
+    // Show the user's own saved label (set in the Connected Devices table, persisted per device by
+    // CANConnection::getLabelKey()) for any detected device that has one - so a device the user named
+    // once shows that name here. The technical name moves into the tooltip.
+    {
+        QSettings settings;
+        for (DetectedDevice &d : out) {
+            if (d.labelKey.isEmpty()) continue;
+            const QString lbl = settings.value("DeviceLabels/" + d.labelKey).toString();
+            if (lbl.isEmpty()) continue;
+            d.detail = d.detail.isEmpty() ? d.displayName : (d.displayName + " — " + d.detail);
+            d.displayName = lbl;
+        }
     }
 
     // Order: physical USB hardware we enumerate directly (pico-flexray + USB-serial adapters) always

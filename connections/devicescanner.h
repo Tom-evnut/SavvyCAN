@@ -25,6 +25,7 @@ struct DetectedDevice {
     CANCon::type type = CANCon::NONE; // best-guess connection type
     QString driver;                   // QtSerialBus plugin name when type==SERIALBUS, else empty
     QString portArg;                  // value handed to NewConnectionDialog::setPortName()
+    QString labelKey;                 // matches CANConnection::getLabelKey(): used to look up the user's saved label
     Confidence confidence = Unknown;
 };
 
