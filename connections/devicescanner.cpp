@@ -87,11 +87,16 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
         }
     }
 
-    // 2) QtSerialBus hardware, per installed plugin - the plugin names the device
+    // 2) QtSerialBus hardware, per installed plugin - the plugin names the device.
+    // Skip plugins/devices that are virtual or mere driver placeholders (they aren't attached
+    // hardware and otherwise flood the list): the virtualcan plugin, and any device the plugin
+    // itself flags virtual.
     for (const QString &plugin : QCanBus::instance()->plugins()) {
+        if (plugin.compare(QLatin1String("virtualcan"), Qt::CaseInsensitive) == 0) continue;
         QString err;
         const QList<QCanBusDeviceInfo> devs = QCanBus::instance()->availableDevices(plugin, &err);
         for (const QCanBusDeviceInfo &info : devs) {
+            if (info.isVirtual()) continue; //drop virtual/non-hardware channels
             DetectedDevice d;
             d.displayName = info.description().isEmpty()
                               ? QStringLiteral("%1: %2").arg(plugin, info.name())
