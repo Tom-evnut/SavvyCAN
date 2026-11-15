@@ -13,13 +13,13 @@ CANConnectionModel::~CANConnectionModel()
 }
 
 enum class Column {
-    Type       = 0, ///< The CAN driver/backend type, e.g. GVRET, peakcan, or socketcan
-    Subtype    = 1, ///< Mostly used by SerialBus devices to pick the sub type
-    Port       = 2, ///< The CAN hardware port, e.g. can0 for socketcan
-    Speed      = 3,
-    NumBuses   = 4, ///< Number of buses exposed by this device. Usually non-GVRET devices will just have one
-    Status     = 5, ///< The bus status as text message
-    Label      = 6  ///< A user-assigned label to tell multiple devices apart
+    Label      = 0, ///< A user-assigned label to tell multiple devices apart (leftmost)
+    Type       = 1, ///< The CAN driver/backend type, e.g. GVRET, peakcan, or socketcan
+    Subtype    = 2, ///< Mostly used by SerialBus devices to pick the sub type
+    Port       = 3, ///< The CAN hardware port, e.g. can0 for socketcan
+    Speed      = 4,
+    NumBuses   = 5, ///< Number of buses exposed by this device. Usually non-GVRET devices will just have one
+    Status     = 6  ///< The bus status as text message
 };
 
 QVariant CANConnectionModel::headerData(int section, Qt::Orientation orientation, int role) const
