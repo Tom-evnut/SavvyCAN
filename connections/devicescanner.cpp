@@ -2,9 +2,11 @@
 #include "connections/picoflexray.h"
 
 #include <QSerialPortInfo>
+#include <QSerialPort>
 #include <QCanBus>
 #include <QCanBusDeviceInfo>
 #include <QSettings>
+#include <QElapsedTimer>
 #include <algorithm>
 
 // --- serial adapter identification -------------------------------------------------------------
@@ -163,6 +165,7 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
             if (lbl.isEmpty()) continue;
             d.detail = d.detail.isEmpty() ? d.displayName : (d.displayName + " — " + d.detail);
             d.displayName = lbl;
+            d.hasUserLabel = true;
         }
     }
 
@@ -185,4 +188,42 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
     });
 
     return out;
+}
+
+bool DeviceScanner::probeGvret(const QString &portName, int &buildNum, bool &fdCapable)
+{
+    buildNum = 0;
+    fdCapable = false;
+
+    QSerialPort port;
+    port.setPortName(portName);
+    port.setBaudRate(1000000); // GVRET default; over USB-CDC the rate is nominal (ignored)
+    if (!port.open(QIODevice::ReadWrite)) return false; // busy (already connected) or not openable
+    port.setDataTerminalReady(true);
+
+    // GVRET binary commands are 0xF1 followed by an opcode. Ask for device info (0x07) and FD
+    // settings (0x16); a GVRET device echoes the opcode back with its reply payload.
+    port.write(QByteArray::fromHex("F107F116"));
+    port.flush();
+
+    QByteArray resp;
+    QElapsedTimer t; t.start();
+    while (t.elapsed() < 500 && resp.size() < 256) {
+        if (port.waitForReadyRead(120)) resp.append(port.readAll());
+        else if (!resp.isEmpty()) break; // got something then a quiet gap - reply is complete
+    }
+    port.close();
+
+    bool isGvret = false;
+    for (int i = 0; i + 3 < resp.size(); i++) {
+        if ((quint8)resp[i] == 0xF1 && (quint8)resp[i + 1] == 0x07) { // GET_DEVICE_INFO reply
+            buildNum = (quint8)resp[i + 2] | ((quint8)resp[i + 3] << 8);
+            isGvret = true;
+            break;
+        }
+    }
+    for (int j = 0; j + 1 < resp.size(); j++) {
+        if ((quint8)resp[j] == 0xF1 && (quint8)resp[j + 1] == 0x16) { fdCapable = true; isGvret = true; break; }
+    }
+    return isGvret;
 }
