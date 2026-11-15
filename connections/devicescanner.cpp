@@ -4,6 +4,7 @@
 #include <QSerialPortInfo>
 #include <QCanBus>
 #include <QCanBusDeviceInfo>
+#include <algorithm>
 
 // --- serial adapter identification -------------------------------------------------------------
 // VID/PID and descriptor strings only narrow things down - many different CAN boards share the same
@@ -142,6 +143,24 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
         d.confidence = DetectedDevice::Certain;
         out.append(d);
     }
+
+    // Order: physical USB hardware we enumerate directly (pico-flexray + USB-serial adapters) always
+    // first, then driver-mediated QtSerialBus devices, then network devices. Stable, so insertion
+    // order is kept within each tier.
+    auto rankOf = [](const DetectedDevice &d) -> int {
+        switch (d.type) {
+        case CANCon::PICOFLEXRAY: return 0; // USB (FlexRay)
+        case CANCon::GVRET_SERIAL:
+        case CANCon::LAWICEL:     return 0; // USB-serial adapters
+        case CANCon::SERIALBUS:   return 1; // driver-mediated hardware / plugins
+        case CANCon::REMOTE:
+        case CANCon::KAYAK:       return 2; // network (broadcast-discovered)
+        default:                  return 3;
+        }
+    };
+    std::stable_sort(out.begin(), out.end(), [&rankOf](const DetectedDevice &a, const DetectedDevice &b){
+        return rankOf(a) < rankOf(b);
+    });
 
     return out;
 }
