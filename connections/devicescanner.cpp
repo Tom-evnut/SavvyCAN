@@ -190,10 +190,10 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
     return out;
 }
 
-bool DeviceScanner::probeGvret(const QString &portName, int &buildNum, bool &fdCapable)
+bool DeviceScanner::probeGvret(const QString &portName, QString &details, bool &anyFd)
 {
-    buildNum = 0;
-    fdCapable = false;
+    details.clear();
+    anyFd = false;
 
     QSerialPort port;
     port.setPortName(portName);
@@ -206,24 +206,50 @@ bool DeviceScanner::probeGvret(const QString &portName, int &buildNum, bool &fdC
     port.write(QByteArray::fromHex("F107F116"));
     port.flush();
 
-    QByteArray resp;
+    QByteArray r;
     QElapsedTimer t; t.start();
-    while (t.elapsed() < 500 && resp.size() < 256) {
-        if (port.waitForReadyRead(120)) resp.append(port.readAll());
-        else if (!resp.isEmpty()) break; // got something then a quiet gap - reply is complete
+    while (t.elapsed() < 600 && r.size() < 512) {
+        if (port.waitForReadyRead(120)) r.append(port.readAll());
+        else if (!r.isEmpty()) break; // got something then a quiet gap - reply is complete
     }
     port.close();
 
-    bool isGvret = false;
-    for (int i = 0; i + 3 < resp.size(); i++) {
-        if ((quint8)resp[i] == 0xF1 && (quint8)resp[i + 1] == 0x07) { // GET_DEVICE_INFO reply
-            buildNum = (quint8)resp[i + 2] | ((quint8)resp[i + 3] << 8);
-            isGvret = true;
+    bool ok = false;
+    int buildNum = -1, numBuses = -1;
+    QStringList busBits;
+
+    // GET_DEVICE_INFO reply: F1 07 build_lo build_hi [eeprom][filetype][autolog][singlewire]
+    for (int i = 0; i + 3 < r.size(); i++)
+        if ((quint8)r[i] == 0xF1 && (quint8)r[i + 1] == 0x07) {
+            buildNum = (quint8)r[i + 2] | ((quint8)r[i + 3] << 8); ok = true; break;
+        }
+
+    // GET_FD reply: F1 16 nbuses, then per bus: flags(1, bit0 = FD capable) + data rate(u32 LE)
+    for (int i = 0; i + 2 < r.size(); i++) {
+        if ((quint8)r[i] == 0xF1 && (quint8)r[i + 1] == 0x16) {
+            ok = true;
+            const int nb = (quint8)r[i + 2];
+            if (nb < 1 || nb > 16) break;
+            numBuses = nb;
+            int p = i + 3;
+            for (int b = 0; b < nb && p + 4 < r.size(); b++, p += 5) {
+                const quint8 flags = (quint8)r[p];
+                const quint32 rate = (quint8)r[p + 1] | ((quint8)r[p + 2] << 8)
+                                   | ((quint8)r[p + 3] << 16) | ((quint32)(quint8)r[p + 4] << 24);
+                const bool fdCap = flags & 0x01;
+                if (fdCap) anyFd = true;
+                QString bb = QStringLiteral("bus%1 %2").arg(b).arg(fdCap ? "CAN FD" : "classic");
+                if (fdCap && rate > 0) bb += QStringLiteral(" @ %1k").arg(rate / 1000);
+                busBits << bb;
+            }
             break;
         }
     }
-    for (int j = 0; j + 1 < resp.size(); j++) {
-        if ((quint8)resp[j] == 0xF1 && (quint8)resp[j + 1] == 0x16) { fdCapable = true; isGvret = true; break; }
-    }
-    return isGvret;
+
+    if (!ok) return false;
+    QString head = QStringLiteral("GVRET");
+    if (buildNum >= 0) head += QStringLiteral(" build %1").arg(buildNum);
+    if (numBuses >= 0) head += QStringLiteral(", %1 bus%2").arg(numBuses).arg(numBuses == 1 ? "" : "es");
+    details = busBits.isEmpty() ? head : (head + " (" + busBits.join(", ") + ")");
+    return true;
 }
