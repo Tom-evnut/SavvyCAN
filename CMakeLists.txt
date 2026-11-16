@@ -140,6 +140,8 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     re/dbccomparatorwindow.cpp re/dbccomparatorwindow.h
     re/discretestatewindow.cpp re/discretestatewindow.h
     re/filecomparatorwindow.cpp re/filecomparatorwindow.h
+    re/flexrayschedulewindow.cpp re/flexrayschedulewindow.h
+    re/flexrayslotcyclemodel.cpp re/flexrayslotcyclemodel.h
     re/flowviewwindow.cpp re/flowviewwindow.h
     re/frameinfowindow.cpp re/frameinfowindow.h
     re/fuzzingwindow.cpp re/fuzzingwindow.h
@@ -164,7 +166,7 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     utils/HexSpinBox.h
     utils/lfqueue.h
     images.qrc icons.qrc
-    ui/bisectwindow.ui ui/canbridgewindow.ui ui/candatagrid.ui ui/connectionwindow.ui ui/dbccomparatorwindow.ui ui/dbcloadsavewindow.ui ui/dbcmaineditor.ui ui/dbcmessageeditor.ui ui/dbcnodeduplicateeditor.ui ui/dbcnodeeditor.ui ui/dbcnoderebaseeditor.ui ui/dbcsignaleditor.ui ui/discretestatewindow.ui ui/filecomparatorwindow.ui ui/udsfirmwareuploaderwindow.ui ui/flowviewwindow.ui ui/frameinfowindow.ui ui/frameplaybackwindow.ui ui/framesenderwindow.ui ui/fuzzingwindow.ui ui/graphingwindow.ui ui/helpwindow.ui ui/isotp_interpreterwindow.ui ui/mainsettingsdialog.ui ui/mainwindow.ui ui/motorcontrollerconfigwindow.ui ui/newconnectiondialog.ui ui/newgraphdialog.ui ui/rangestatewindow.ui ui/scriptingwindow.ui ui/searchwindow.ui ui/signalviewerwindow.ui ui/snifferwindow.ui ui/temporalgraphwindow.ui ui/udsscanwindow.ui
+    ui/bisectwindow.ui ui/canbridgewindow.ui ui/candatagrid.ui ui/connectionwindow.ui ui/dbccomparatorwindow.ui ui/dbcloadsavewindow.ui ui/dbcmaineditor.ui ui/dbcmessageeditor.ui ui/dbcnodeduplicateeditor.ui ui/dbcnodeeditor.ui ui/dbcnoderebaseeditor.ui ui/dbcsignaleditor.ui ui/discretestatewindow.ui ui/filecomparatorwindow.ui ui/flexrayschedulewindow.ui ui/udsfirmwareuploaderwindow.ui ui/flowviewwindow.ui ui/frameinfowindow.ui ui/frameplaybackwindow.ui ui/framesenderwindow.ui ui/fuzzingwindow.ui ui/graphingwindow.ui ui/helpwindow.ui ui/isotp_interpreterwindow.ui ui/mainsettingsdialog.ui ui/mainwindow.ui ui/motorcontrollerconfigwindow.ui ui/newconnectiondialog.ui ui/newgraphdialog.ui ui/rangestatewindow.ui ui/scriptingwindow.ui ui/searchwindow.ui ui/signalviewerwindow.ui ui/snifferwindow.ui ui/temporalgraphwindow.ui ui/udsscanwindow.ui
 )
 
 if(APPLE)

@@ -40,6 +40,7 @@
 #include "re/udsfirmwareuploaderwindow.h"
 #include "canbridgewindow.h"
 #include "re/searchwindow.h"
+#include "re/flexrayschedulewindow.h"
 #include "croplogdialog.h"
 #include "lognotes.h"
 #include "markerpresets.h"
@@ -128,6 +129,7 @@ private slots:
     void showDBCComparisonWindow();
     void showCANBridgeWindow();
     void showSearchWindow();
+    void showFlexRayScheduleWindow();
     void jumpToSearchFrame(int frameIndex);
     void exitApp();
     void handleSaveDecoded();
@@ -260,6 +262,7 @@ private:
     DBCComparatorWindow *dbcComparatorWindow;
     CANBridgeWindow *canBridgeWindow;
     SearchWindow *searchWindow;
+    FlexRayScheduleWindow *flexRayScheduleWindow;
 
     //various private storage
     QLabel lbStatusConnected;

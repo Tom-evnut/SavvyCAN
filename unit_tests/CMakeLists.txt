@@ -225,6 +225,19 @@ target_link_libraries(TestLogNotesUi
     Qt6::Widgets
 )
 
+###### FlexRay slot x cycle aggregator ######
+add_executable(TestFlexRaySchedule
+    test_flexray_schedule.cpp
+    ../re/flexrayslotcyclemodel.cpp  # the code under test (pure aggregator + table model)
+)
+
+target_include_directories(TestFlexRaySchedule PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
+
+target_link_libraries(TestFlexRaySchedule
+    Qt6::Core
+    Qt6::Test
+    Qt6::SerialBus
+)
 
 # Enable ctest integration
 enable_testing()
@@ -238,3 +251,4 @@ add_test(NAME TestFileDialogSplit COMMAND TestFileDialogSplit)
 add_test(NAME TestGitHub COMMAND TestGitHub)
 add_test(NAME TestLogNotes COMMAND TestLogNotes)
 add_test(NAME TestLogNotesUi COMMAND TestLogNotesUi)
+add_test(NAME TestFlexRaySchedule COMMAND TestFlexRaySchedule)

@@ -1,7 +1,9 @@
 # Fork-only workflow: builds the Linux x64 AppImage and the Windows x64 package for this fork's branches.
-# Both jobs are copied from upstream's build.yml (as of QT6WIP 3288f1f), plus libusb-1.0 for the pico-flexray
-# connection (flexray-pico): apt on Linux, vcpkg on Windows, with libusb-1.0.dll in the Windows package.
-# Upstream's build.yml only runs on QT6WIP and also publishes a release and notifies Discord.
+# The two build jobs are copied from upstream's build.yml (as of QT6WIP 3288f1f), plus libusb-1.0 for the
+# pico-flexray connection (flexray-pico): apt on Linux, vcpkg on Windows, with libusb-1.0.dll in the Windows
+# package. Upstream's build.yml only runs on QT6WIP and also publishes a release and notifies Discord.
+# A third job (unittests) builds and runs the standalone unit_tests/ harness via ctest so the pure-logic
+# tests (e.g. the FlexRay slot x cycle aggregator) actually gate CI, not just the app compile.
 name: Fork Build (Linux + Windows)
 
 on:
@@ -107,3 +109,26 @@ jobs:
         with:
           name: SavvyCAN-Windows_x64
           path: package
+
+  unittests:
+    name: Unit tests (Linux)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Prepare Qt Libraries
+        uses: jurplel/install-qt-action@v4
+        with:
+           version: '6.10'
+           modules: 'qtserialbus qtserialport'
+
+      - name: Clone
+        uses: actions/checkout@v3
+
+      # The unit_tests/ directory is a standalone CMake project. Configure it, build only the
+      # FlexRay aggregator test target, and run it through ctest so a failed assertion fails CI.
+      # --no-tests=error makes an empty test selection a hard error (so a rename can't silently skip it).
+      - name: Build and run unit tests
+        run: |
+          cmake -B ${{github.workspace}}/build-tests -S ${{github.workspace}}/unit_tests -DCMAKE_BUILD_TYPE=Release
+          cmake --build ${{github.workspace}}/build-tests --config Release --target TestFlexRaySchedule -j`grep -c ^processor /proc/cpuinfo`
+          ctest --test-dir ${{github.workspace}}/build-tests -R TestFlexRaySchedule --output-on-failure --no-tests=error

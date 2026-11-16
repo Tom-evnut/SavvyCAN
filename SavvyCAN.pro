@@ -96,6 +96,8 @@ SOURCES += main.cpp\
     dbc/dbcnoderebaseeditor.cpp \
     re/discretestatewindow.cpp \
     re/filecomparatorwindow.cpp \
+    re/flexrayschedulewindow.cpp \
+    re/flexrayslotcyclemodel.cpp \
     re/flowviewwindow.cpp \
     re/frameinfowindow.cpp \
     re/fuzzingwindow.cpp \
@@ -216,6 +218,8 @@ HEADERS  += mainwindow.h \
     dbc/dbcnodeeditor.h \
     re/discretestatewindow.h \
     re/filecomparatorwindow.h \
+    re/flexrayschedulewindow.h \
+    re/flexrayslotcyclemodel.h \
     re/flowviewwindow.h \
     re/frameinfowindow.h \
     re/fuzzingwindow.h \
@@ -266,6 +270,7 @@ FORMS    += ui/candatagrid.ui \
     ui/dbcnodeeditor.ui \
     ui/discretestatewindow.ui \
     ui/filecomparatorwindow.ui \
+    ui/flexrayschedulewindow.ui \
     ui/flowviewwindow.ui \
     ui/frameinfowindow.ui \
     ui/frameplaybackwindow.ui \

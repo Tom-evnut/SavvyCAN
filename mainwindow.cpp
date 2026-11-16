@@ -115,6 +115,7 @@ MainWindow::MainWindow(QWidget *parent) :
     dbcComparatorWindow = nullptr;
     canBridgeWindow = nullptr;
     searchWindow = nullptr;
+    flexRayScheduleWindow = nullptr;
     actNextPreset = nullptr; //made with the Log Notes panel, below
     actUndoMarker = nullptr;
     dbcHandler = DBCHandler::getReference();
@@ -172,6 +173,7 @@ MainWindow::MainWindow(QWidget *parent) :
     connect(ui->actionSave_Continuous_Logfile, &QAction::triggered, this, &MainWindow::handleContinousLogging);
     connect(ui->actionSave_Continuous_Filtered_Logfile, &QAction::triggered, this, &MainWindow::handleContinousLoggingFiltered);
     connect(ui->actionTemporal_Graph, &QAction::triggered, this, &MainWindow::showTemporalGraphWindow);
+    connect(ui->actionFlexRay_Schedule, &QAction::triggered, this, &MainWindow::showFlexRayScheduleWindow);
     connect(ui->actionCAN_Bridge, &QAction::triggered, this, &MainWindow::showCANBridgeWindow);
     connect(ui->actionFrame_Search, &QAction::triggered, this, &MainWindow::showSearchWindow);
 
@@ -440,6 +442,7 @@ void MainWindow::killEmAll()
     killWindow(signalViewerWindow);
     killWindow(temporalGraphWindow);
     killWindow(canBridgeWindow);
+    killWindow(flexRayScheduleWindow);
 
     //trying to kill this window can cause a fault to happen. It's closed last just in case.
     killWindow(connectionWindow);
@@ -2797,6 +2800,18 @@ void MainWindow::showCANBridgeWindow()
         canBridgeWindow = new CANBridgeWindow(model->getListReference());
     }
     raiseChildWindow(canBridgeWindow);
+}
+
+void MainWindow::showFlexRayScheduleWindow()
+{
+    if (!flexRayScheduleWindow)
+    {
+        if (!useFiltered)
+            flexRayScheduleWindow = new FlexRayScheduleWindow(model->getListReference());
+        else
+            flexRayScheduleWindow = new FlexRayScheduleWindow(model->getFilteredListReference());
+    }
+    raiseChildWindow(flexRayScheduleWindow);
 }
 
 void MainWindow::showSearchWindow()

@@ -482,6 +482,7 @@
     <addaction name="actionSignal_Viewer"/>
     <addaction name="actionTemporal_Graph"/>
     <addaction name="actionFrame_Search"/>
+    <addaction name="actionFlexRay_Schedule"/>
    </widget>
    <widget class="QMenu" name="menuSend_Frames">
     <property name="title">
@@ -739,6 +740,14 @@
   <action name="actionTemporal_Graph">
    <property name="text">
     <string>Temporal Graph</string>
+   </property>
+  </action>
+  <action name="actionFlexRay_Schedule">
+   <property name="text">
+    <string>FlexRay Schedule</string>
+   </property>
+   <property name="toolTip">
+    <string>Slot x cycle matrix of FlexRay traffic (the cycle-multiplexed schedule)</string>
    </property>
   </action>
   <action name="actionDBC_Comparison">
