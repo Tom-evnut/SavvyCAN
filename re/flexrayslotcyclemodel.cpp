@@ -20,7 +20,7 @@ QMap<quint8, FrChannelSchedule> FlexRaySlotCycleModel::aggregate(const QVector<C
         const quint32 slotId = frame.frameId(); //11-bit FlexRay slot ID
 
         FrChannelSchedule &sched = result[channel];
-        FrSlotRow &row = sched.slots[slotId];
+        FrSlotRow &row = sched.slotRows[slotId];
         row.slotId = slotId;
         FrSlotCycleCell &cell = row.cells[cycle];
 
@@ -43,8 +43,8 @@ void FlexRaySlotCycleModel::setSchedule(const FrChannelSchedule &data)
     beginResetModel();
     mData = data;
     mSlotOrder.clear();
-    mSlotOrder.reserve(mData.slots.size());
-    for (auto it = mData.slots.constBegin(); it != mData.slots.constEnd(); ++it)
+    mSlotOrder.reserve(mData.slotRows.size());
+    for (auto it = mData.slotRows.constBegin(); it != mData.slotRows.constEnd(); ++it)
         mSlotOrder.append(it.key()); //QMap iterates in ascending key (slot ID) order
     endResetModel();
 }

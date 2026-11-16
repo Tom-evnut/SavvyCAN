@@ -147,13 +147,13 @@ void TestFlexRaySchedule::testAggregate()
 
     // channel separation: bus 1 carries its own 0x100, independent of bus 0
     const FrChannelSchedule &fr1 = sched[1];
-    QCOMPARE(fr1.slots.size(), 1);
+    QCOMPARE(fr1.slotRows.size(), 1);
     const FrSlotCycleCell *c100b1 = fr1.cell(0x100, 0);
     QVERIFY(c100b1 != nullptr);
     QCOMPARE(c100b1->lastPayload, QByteArray::fromHex("EE"));
 
     // bus 0 holds exactly the six FlexRay slots we injected
-    QCOMPARE(fr0.slots.size(), 6);
+    QCOMPARE(fr0.slotRows.size(), 6);
 }
 
 QTEST_MAIN(TestFlexRaySchedule)

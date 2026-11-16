@@ -107,7 +107,7 @@ void FlexRayScheduleWindow::showChannel(quint8 bus)
     gridModel->setSchedule(sched);
 
     //count how many of the 64 cycle columns carry any traffic, for a quick sanity line
-    int slotCount = sched.slots.size();
+    int slotCount = sched.slotRows.size();
     ui->lblStatus->setText(tr("%1 slot(s) on bus %2").arg(slotCount).arg(bus));
 }
 

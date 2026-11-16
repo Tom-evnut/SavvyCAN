@@ -38,14 +38,16 @@ struct FrSlotRow {
  * each carrying its 64 cycle cells.
  */
 struct FrChannelSchedule {
-    QMap<quint32, FrSlotRow> slots; //keyed by slotId; QMap keeps them sorted ascending
+    //keyed by slotId; QMap keeps them sorted ascending. Named slotRows (not "slots") so Qt's moc,
+    //which treats a bare "slots" as the slots-section keyword, doesn't choke on this struct.
+    QMap<quint32, FrSlotRow> slotRows;
 
     //Returns the cell for (slotId, cycle), or nullptr if that slot/cycle was never seen.
     const FrSlotCycleCell *cell(quint32 slotId, int cycle) const
     {
         if (cycle < 0 || cycle >= FR_NUM_CYCLES) return nullptr;
-        auto it = slots.constFind(slotId);
-        if (it == slots.constEnd()) return nullptr;
+        auto it = slotRows.constFind(slotId);
+        if (it == slotRows.constEnd()) return nullptr;
         return &it->cells[cycle];
     }
 };
