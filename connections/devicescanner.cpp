@@ -198,8 +198,12 @@ bool DeviceScanner::probeGvret(const QString &portName, QString &details, bool &
     QSerialPort port;
     port.setPortName(portName);
     port.setBaudRate(1000000); // GVRET default; over USB-CDC the rate is nominal (ignored)
+    port.setFlowControl(QSerialPort::NoFlowControl);
     if (!port.open(QIODevice::ReadWrite)) return false; // busy (already connected) or not openable
-    port.setDataTerminalReady(true);
+    // ESP32 boards use DTR/RTS for reset + bootloader selection; keep them LOW so the probe never
+    // resets the board or drops it into the ROM download mode. Matches GVRetSerial's own port setup.
+    port.setDataTerminalReady(false);
+    port.setRequestToSend(false);
 
     // 0xE7 switches an ESP32RET/GVRET board into binary mode (no reply); harmless on a non-GVRET
     // device. Then the binary commands (0xF1 + opcode): device info (0x07) and FD settings (0x16);
