@@ -224,21 +224,31 @@ bool DeviceScanner::probeGvret(const QString &portName, QString &details, bool &
     int buildNum = -1, numBuses = -1;
     QStringList busBits;
 
-    // GET_DEVICE_INFO reply: F1 07 build_lo build_hi [eeprom][filetype][autolog][singlewire]
-    for (int i = 0; i + 3 < r.size(); i++)
-        if ((quint8)r[i] == 0xF1 && (quint8)r[i + 1] == 0x07) {
-            buildNum = (quint8)r[i + 2] | ((quint8)r[i + 3] << 8); ok = true; break;
-        }
+    // A GVRET board whose buses are enabled (the T2 saves bus enable in NVS, so this is the normal
+    // case) streams CAN frames alongside the replies once it's in binary mode - and an 0xF1 0x07 or
+    // 0xF1 0x16 can appear inside frame data. So a match must be a *well-formed* reply of the exact
+    // expected length AND be followed by end-of-buffer or another 0xF1 (the next framed message).
+    // (Hardening suggested by the T2 firmware session; reasonable, not yet bench-proven on a live bus.)
+    auto framedAt = [&r](int i, int len) -> bool {
+        if (i + len > r.size()) return false;                                   // reply not fully present
+        if (i + len < r.size() && (quint8)r[i + len] != 0xF1) return false;     // not followed by a framed msg
+        return true;
+    };
 
-    // GET_FD reply: F1 16 nbuses, then per bus: flags(1, bit0 = FD capable) + data rate(u32 LE)
-    for (int i = 0; i + 2 < r.size(); i++) {
-        if ((quint8)r[i] == 0xF1 && (quint8)r[i + 1] == 0x16) {
+    for (int i = 0; i + 1 < r.size(); i++) {
+        if ((quint8)r[i] != 0xF1) continue;
+        const quint8 op = (quint8)r[i + 1];
+        if (op == 0x07 && buildNum < 0 && framedAt(i, 8)) {
+            // GET_DEVICE_INFO reply: F1 07 build_lo build_hi [eeprom][filetype][autolog][singlewire]
+            buildNum = (quint8)r[i + 2] | ((quint8)r[i + 3] << 8);
             ok = true;
+        } else if (op == 0x16 && numBuses < 0 && i + 2 < r.size()) {
+            // GET_FD reply: F1 16 nbuses, then per bus: flags(1, bit0 = FD capable) + data rate(u32 LE)
             const int nb = (quint8)r[i + 2];
-            if (nb < 1 || nb > 16) break;
+            if (nb < 1 || nb > 16 || !framedAt(i, 3 + 5 * nb)) continue;
             numBuses = nb;
             int p = i + 3;
-            for (int b = 0; b < nb && p + 4 < r.size(); b++, p += 5) {
+            for (int b = 0; b < nb; b++, p += 5) {
                 const quint8 flags = (quint8)r[p];
                 const quint32 rate = (quint8)r[p + 1] | ((quint8)r[p + 2] << 8)
                                    | ((quint8)r[p + 3] << 16) | ((quint32)(quint8)r[p + 4] << 24);
@@ -248,7 +258,7 @@ bool DeviceScanner::probeGvret(const QString &portName, QString &details, bool &
                 if (fdCap && rate > 0) bb += QStringLiteral(" @ %1k").arg(rate / 1000);
                 busBits << bb;
             }
-            break;
+            ok = true;
         }
     }
 
