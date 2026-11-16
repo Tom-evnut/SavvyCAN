@@ -201,9 +201,11 @@ bool DeviceScanner::probeGvret(const QString &portName, QString &details, bool &
     if (!port.open(QIODevice::ReadWrite)) return false; // busy (already connected) or not openable
     port.setDataTerminalReady(true);
 
-    // GVRET binary commands are 0xF1 followed by an opcode. Ask for device info (0x07) and FD
-    // settings (0x16); a GVRET device echoes the opcode back with its reply payload.
-    port.write(QByteArray::fromHex("F107F116"));
+    // 0xE7 switches an ESP32RET/GVRET board into binary mode (no reply); harmless on a non-GVRET
+    // device. Then the binary commands (0xF1 + opcode): device info (0x07) and FD settings (0x16);
+    // a GVRET device echoes the opcode back with its reply payload. Note: this leaves a GVRET board
+    // in binary mode, which is fine for SavvyCAN (it sends 0xE7 on connect too).
+    port.write(QByteArray::fromHex("E7F107F116"));
     port.flush();
 
     QByteArray r;
