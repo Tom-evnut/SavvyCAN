@@ -96,6 +96,7 @@ SOURCES += main.cpp\
     dbc/dbcnoderebaseeditor.cpp \
     re/discretestatewindow.cpp \
     re/filecomparatorwindow.cpp \
+    re/flexrayscheduleanalysis.cpp \
     re/flexrayschedulewindow.cpp \
     re/flexrayslotcyclemodel.cpp \
     re/flowviewwindow.cpp \
@@ -218,6 +219,7 @@ HEADERS  += mainwindow.h \
     dbc/dbcnodeeditor.h \
     re/discretestatewindow.h \
     re/filecomparatorwindow.h \
+    re/flexrayscheduleanalysis.h \
     re/flexrayschedulewindow.h \
     re/flexrayslotcyclemodel.h \
     re/flowviewwindow.h \

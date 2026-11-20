@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>900</width>
-    <height>500</height>
+    <width>960</width>
+    <height>520</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -56,9 +56,91 @@
     </layout>
    </item>
    <item>
+    <layout class="QHBoxLayout" name="filterBar">
+     <item>
+      <widget class="QCheckBox" name="chkHideStatic">
+       <property name="text">
+        <string>Hide static</string>
+       </property>
+       <property name="toolTip">
+        <string>Hide slots whose payload never changes (plain static signals)</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="chkOnlyMux">
+       <property name="text">
+        <string>Only cycle-multiplexed</string>
+       </property>
+       <property name="toolTip">
+        <string>Show only slots whose payload differs between cycles</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="chkHideNull">
+       <property name="text">
+        <string>Hide null frames</string>
+       </property>
+       <property name="toolTip">
+        <string>Hide slots whose only traffic is FlexRay null frames</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lblMinCount">
+       <property name="text">
+        <string>Min count:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QSpinBox" name="spinMinCount">
+       <property name="maximum">
+        <number>1000000</number>
+       </property>
+       <property name="toolTip">
+        <string>Hide slots with fewer than this many frames in total</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="filterSpacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QWidget" name="legendBar" native="true">
+       <layout class="QHBoxLayout" name="legendLayout">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
     <widget class="QTableView" name="tableView">
      <property name="toolTip">
-      <string>Rows = FlexRay slot IDs, columns = communication cycle 0..63. A filled cell means a frame was seen for that (slot, cycle); hover for the last payload, count and timestamp.</string>
+      <string>Rows = FlexRay slot IDs, columns = communication cycle 0..63. Cell colour shows static / changing / error; hover for the last payload, count and timestamp. The summary columns on the right give total count, inferred repetition and the cycle-multiplex flag.</string>
      </property>
      <property name="alternatingRowColors">
       <bool>true</bool>

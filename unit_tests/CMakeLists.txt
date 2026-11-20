@@ -225,10 +225,10 @@ target_link_libraries(TestLogNotesUi
     Qt6::Widgets
 )
 
-###### FlexRay slot x cycle aggregator ######
+###### FlexRay slot x cycle analysis ######
 add_executable(TestFlexRaySchedule
     test_flexray_schedule.cpp
-    ../re/flexrayslotcyclemodel.cpp  # the code under test (pure aggregator + table model)
+    ../re/flexrayscheduleanalysis.cpp  # the code under test (pure aggregator + P2 analysis, no GUI)
 )
 
 target_include_directories(TestFlexRaySchedule PRIVATE ${SAVVYCAN_INCLUDE_DIRS})
