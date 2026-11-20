@@ -32,6 +32,7 @@ public:
 private slots:
     void rebuild();          //re-aggregate from the current frame list (open / Refresh)
     void channelChanged();   //show the selected channel's grid
+    void filtersChanged();   //apply the toolbar filter controls to the grid
 
 private:
     Ui::FlexRayScheduleWindow *ui;
@@ -40,6 +41,8 @@ private:
     QMap<quint8, FrChannelSchedule> schedules; //all observed channels from the last rebuild
 
     void showChannel(quint8 bus);
+    void buildLegend();      //populate the colour-key legend (theme-aware)
+    void updateStatusLabel(quint8 bus);
     void closeEvent(QCloseEvent *event) override;
     bool eventFilter(QObject *obj, QEvent *event) override;
     void readSettings();

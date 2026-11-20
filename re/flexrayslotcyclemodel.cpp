@@ -1,51 +1,59 @@
 #include "flexrayslotcyclemodel.h"
 
+#include <QGuiApplication>
+#include <QPalette>
+
 FlexRaySlotCycleModel::FlexRaySlotCycleModel(QObject *parent) :
     QAbstractTableModel(parent)
 {
 }
 
-QMap<quint8, FrChannelSchedule> FlexRaySlotCycleModel::aggregate(const QVector<CommFrame> &frames)
+bool FlexRaySlotCycleModel::isDarkTheme()
 {
-    QMap<quint8, FrChannelSchedule> result;
+    const QColor win = QGuiApplication::palette().color(QPalette::Window);
+    return win.lightness() < 128;
+}
 
-    for (const CommFrame &frame : frames)
+QColor FlexRaySlotCycleModel::colorForState(FrCellState state, bool darkTheme)
+{
+    switch (state)
     {
-        if (!frame.isFlexRay()) continue; //only FlexRay traffic lands in the matrix
-
-        const int cycle = frame.flexRayCycle();
-        if (cycle < 0 || cycle >= FR_NUM_CYCLES) continue; //defensive: cycle is a 6-bit field (0..63)
-
-        const quint8 channel = frame.getBus();
-        const quint32 slotId = frame.frameId(); //11-bit FlexRay slot ID
-
-        FrChannelSchedule &sched = result[channel];
-        FrSlotRow &row = sched.slotRows[slotId];
-        row.slotId = slotId;
-        FrSlotCycleCell &cell = row.cells[cycle];
-
-        const QByteArray payload = frame.payload();
-        if (cell.count > 0 && payload != cell.lastPayload)
-            cell.payloadVaries = true; //a different payload on the same (slot, cycle) => not cycle-stable
-
-        cell.count++;
-        cell.lastPayload = payload;
-        cell.lastTimeUs = static_cast<quint64>(frame.timeStamp().microSeconds());
-        if (frame.hasFlexRayCrcError()) cell.anyCrcFail = true;
-        if (frame.isFlexRayNullFrame())  cell.anyNull = true;
+    case FrCellState::Static:
+        return darkTheme ? QColor(0x2E, 0x5E, 0x34) : QColor(0xC8, 0xE6, 0xC9);
+    case FrCellState::Changing:
+        return darkTheme ? QColor(0x8A, 0x5A, 0x00) : QColor(0xFF, 0xE0, 0xB2);
+    case FrCellState::Error:
+        return darkTheme ? QColor(0x7A, 0x24, 0x24) : QColor(0xFF, 0xCD, 0xD2);
+    case FrCellState::Empty:
+    default:
+        return QColor(); //invalid -> no brush
     }
-
-    return result;
 }
 
 void FlexRaySlotCycleModel::setSchedule(const FrChannelSchedule &data)
 {
-    beginResetModel();
     mData = data;
+    rebuildRows();
+}
+
+void FlexRaySlotCycleModel::setFilters(const FrFilterSettings &filters)
+{
+    mFilters = filters;
+    rebuildRows();
+}
+
+void FlexRaySlotCycleModel::rebuildRows()
+{
+    beginResetModel();
+    mSummaries.clear();
     mSlotOrder.clear();
-    mSlotOrder.reserve(mData.slotRows.size());
     for (auto it = mData.slotRows.constBegin(); it != mData.slotRows.constEnd(); ++it)
-        mSlotOrder.append(it.key()); //QMap iterates in ascending key (slot ID) order
+    {
+        FrSlotSummary summary = FrScheduleAnalysis::summarizeSlot(it.value());
+        mSummaries.insert(it.key(), summary);
+        if (FrScheduleAnalysis::slotPassesFilters(summary, mFilters))
+            mSlotOrder.append(it.key()); //QMap iterates ascending by slot ID
+    }
     endResetModel();
 }
 
@@ -53,6 +61,7 @@ void FlexRaySlotCycleModel::clear()
 {
     beginResetModel();
     mData = FrChannelSchedule();
+    mSummaries.clear();
     mSlotOrder.clear();
     endResetModel();
 }
@@ -73,7 +82,7 @@ int FlexRaySlotCycleModel::rowCount(const QModelIndex &parent) const
 int FlexRaySlotCycleModel::columnCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) return 0;
-    return FR_NUM_CYCLES;
+    return FR_TOTAL_COLS;
 }
 
 QVariant FlexRaySlotCycleModel::data(const QModelIndex &index, int role) const
@@ -82,32 +91,69 @@ QVariant FlexRaySlotCycleModel::data(const QModelIndex &index, int role) const
 
     quint32 slotId = 0;
     if (!slotForRow(index.row(), slotId)) return QVariant();
-    const int cycle = index.column();
+    const int col = index.column();
+
+    // --- summary columns (right of the 64 cycle columns) ---
+    if (col >= FR_NUM_CYCLES)
+    {
+        const auto sit = mSummaries.constFind(slotId);
+        if (sit == mSummaries.constEnd()) return QVariant();
+        const FrSlotSummary &sum = sit.value();
+
+        if (role == Qt::TextAlignmentRole)
+            return QVariant(Qt::AlignCenter);
+
+        if (role == Qt::DisplayRole)
+        {
+            switch (col)
+            {
+            case FR_COL_COUNT:  return QVariant(static_cast<qulonglong>(sum.totalCount));
+            case FR_COL_REPEAT: return sum.repeatText();
+            case FR_COL_MUX:    return sum.cycleMultiplexed ? QStringLiteral("yes") : QVariant();
+            default:            return QVariant();
+            }
+        }
+        if (role == Qt::BackgroundRole && col == FR_COL_MUX && sum.cycleMultiplexed)
+            return colorForState(FrCellState::Changing, isDarkTheme());
+        return QVariant();
+    }
+
+    // --- cycle columns ---
+    const int cycle = col;
     const FrSlotCycleCell *cell = mData.cell(slotId, cycle);
     if (!cell) return QVariant();
+
+    const FrCellState state = FrScheduleAnalysis::classifyCell(*cell);
 
     switch (role)
     {
     case Qt::DisplayRole:
-        //P1: present vs empty only (no static/changing/error colouring yet - that's P2)
         return cell->present() ? QStringLiteral("●") /* ● */ : QVariant();
 
     case Qt::TextAlignmentRole:
         return QVariant(Qt::AlignCenter);
 
+    case Qt::BackgroundRole:
+    {
+        const QColor c = colorForState(state, isDarkTheme());
+        return c.isValid() ? QVariant(c) : QVariant();
+    }
+
     case Qt::ToolTipRole:
     {
         if (!cell->present()) return QVariant();
         const QString slotStr = QStringLiteral("0x%1").arg(slotId, 3, 16, QChar('0')).toUpper();
-        QString tip = QStringLiteral("Slot %1  cycle %2\n").arg(slotStr).arg(cycle);
+        static const char *stateName[] = { "empty", "static", "changing", "error" };
+        QString tip = QStringLiteral("Slot %1  cycle %2  [%3]\n")
+                          .arg(slotStr).arg(cycle).arg(stateName[static_cast<int>(state)]);
         tip += QStringLiteral("last payload: %1\n")
                    .arg(cell->lastPayload.isEmpty()
                             ? QStringLiteral("(empty)")
                             : QString::fromLatin1(cell->lastPayload.toHex(' ')).toUpper());
-        tip += QStringLiteral("count: %1\n").arg(cell->count);
-        tip += QStringLiteral("last: %1 us").arg(cell->lastTimeUs);
+        tip += QStringLiteral("count: %1").arg(cell->count);
+        if (cell->nullCount > 0) tip += QStringLiteral("  (null: %1)").arg(cell->nullCount);
+        tip += QStringLiteral("\nlast: %1 us").arg(cell->lastTimeUs);
         if (cell->anyCrcFail) tip += QStringLiteral("\nCRC FAIL");
-        if (cell->anyNull)    tip += QStringLiteral("\nnull frame");
         return tip;
     }
 
@@ -121,14 +167,41 @@ QVariant FlexRaySlotCycleModel::headerData(int section, Qt::Orientation orientat
     if (role == Qt::DisplayRole)
     {
         if (orientation == Qt::Horizontal)
-            return section; //cycle number 0..63
+        {
+            switch (section)
+            {
+            case FR_COL_COUNT:  return QStringLiteral("Σ Count"); // Σ Count
+            case FR_COL_REPEAT: return QStringLiteral("Repeat");
+            case FR_COL_MUX:    return QStringLiteral("Mux");
+            default:            return section; //cycle number 0..63
+            }
+        }
         if (orientation == Qt::Vertical)
         {
             if (section < 0 || section >= mSlotOrder.size()) return QVariant();
-            return QStringLiteral("0x%1").arg(mSlotOrder.at(section), 3, 16, QChar('0')).toUpper();
+            const quint32 slotId = mSlotOrder.at(section);
+            QString text = QStringLiteral("0x%1").arg(slotId, 3, 16, QChar('0')).toUpper();
+            const auto sit = mSummaries.constFind(slotId);
+            if (sit != mSummaries.constEnd() && sit.value().cycleMultiplexed)
+                text += QStringLiteral(" ⇄"); // ⇄ marks a cycle-multiplexed slot
+            return text;
         }
     }
-    else if (role == Qt::TextAlignmentRole)
+    else if (role == Qt::ToolTipRole && orientation == Qt::Vertical)
+    {
+        if (section < 0 || section >= mSlotOrder.size()) return QVariant();
+        const quint32 slotId = mSlotOrder.at(section);
+        const auto sit = mSummaries.constFind(slotId);
+        if (sit == mSummaries.constEnd()) return QVariant();
+        const FrSlotSummary &sum = sit.value();
+        const QString slotStr = QStringLiteral("0x%1").arg(slotId, 3, 16, QChar('0')).toUpper();
+        QString tip = QStringLiteral("Slot %1\n").arg(slotStr);
+        tip += QStringLiteral("total: %1   active cycles: %2\n").arg(sum.totalCount).arg(sum.activeCycleCount);
+        tip += QStringLiteral("repetition: %1\n").arg(sum.repeatText());
+        tip += sum.cycleMultiplexed ? QStringLiteral("cycle-multiplexed") : QStringLiteral("not multiplexed");
+        return tip;
+    }
+    else if (role == Qt::TextAlignmentRole && orientation == Qt::Horizontal)
     {
         return QVariant(Qt::AlignCenter);
     }

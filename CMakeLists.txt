@@ -140,6 +140,7 @@ qt_add_executable(SavvyCAN WIN32 MACOSX_BUNDLE
     re/dbccomparatorwindow.cpp re/dbccomparatorwindow.h
     re/discretestatewindow.cpp re/discretestatewindow.h
     re/filecomparatorwindow.cpp re/filecomparatorwindow.h
+    re/flexrayscheduleanalysis.cpp re/flexrayscheduleanalysis.h
     re/flexrayschedulewindow.cpp re/flexrayschedulewindow.h
     re/flexrayslotcyclemodel.cpp re/flexrayslotcyclemodel.h
     re/flowviewwindow.cpp re/flowviewwindow.h
