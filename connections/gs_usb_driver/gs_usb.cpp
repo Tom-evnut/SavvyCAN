@@ -289,7 +289,7 @@ void GSUSBDevice::readFrame(const candle_frame_t frame)
     if (!isCapSuspended()) {
         CommFrame* queuedFrame = getQueue().get();
         if(queuedFrame) {
-            queuedFrame->bus = 0;
+            queuedFrame->setBus(0);
             queuedFrame->setReceived(true);
 
             // SavvyCAN keeps the whole timestamp in microseconds (seconds left at 0); see CommFrame.
