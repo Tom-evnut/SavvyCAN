@@ -243,6 +243,37 @@ endif()
 if(WIN32)
     set_target_properties(SavvyCAN PROPERTIES WIN32_EXECUTABLE TRUE)
     target_sources(SavvyCAN PRIVATE icons/SavvyIcon.rc)
+
+    # gs_usb (candleLight) backend — Windows only. Ports collin80/SavvyCAN#835 by BennyEvans.
+    # Build the LGPLv3 candle_api WinUSB driver from vendored source (libs/candle_api/src)
+    # as a shared library and dynamically link SavvyCAN against it (GPLv3 + LGPL DLL is
+    # license-compatible). candle_api depends only on Windows SDK libs (SetupApi/winusb/Ole32).
+    # See libs/candle_api/README.md.
+    add_library(candle_api SHARED
+        libs/candle_api/src/candle.c
+        libs/candle_api/src/candle_ctrl_req.c
+    )
+    target_compile_definitions(candle_api PRIVATE
+        CANDLE_API_LIBRARY UNICODE NTDDI_VERSION=NTDDI_VISTA _WIN32_WINNT=_WIN32_WINNT_VISTA
+    )
+    set_target_properties(candle_api PROPERTIES PREFIX "" AUTOMOC OFF AUTOUIC OFF AUTORCC OFF)
+    target_link_libraries(candle_api PRIVATE SetupApi winusb Ole32)
+
+    target_sources(SavvyCAN PRIVATE
+        connections/gs_usb_driver/gs_usb.cpp connections/gs_usb_driver/gs_usb.h
+        connections/gs_usb_driver/gs_usb_reader.cpp connections/gs_usb_driver/gs_usb_reader.h
+        connections/gs_usb_driver/gs_usb_definitions.h
+        connections/gs_usb_driver/gs_usb_functions.h
+    )
+    target_compile_definitions(SavvyCAN PRIVATE GS_USB_DRIVER_ENABLED)
+    target_link_libraries(SavvyCAN PRIVATE candle_api)
+
+    # Put candle_api.dll next to SavvyCAN.exe so it is found at run time and by packaging.
+    add_custom_command(TARGET SavvyCAN POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:candle_api> $<TARGET_FILE_DIR:SavvyCAN>
+        VERBATIM
+    )
 endif()
 
 if(UNIX AND NOT APPLE)

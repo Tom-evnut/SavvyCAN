@@ -8,10 +8,13 @@
 #include "canserver.h"
 #include "canlogserver.h"
 #include "picoflexray.h"
+#ifdef GS_USB_DRIVER_ENABLED
+#include "gs_usb_driver/gs_usb.h"
+#endif
 
 using namespace CANCon;
 
-CANConnection* CanConFactory::create(type pType, QString pPortName, QString pDriverName, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly, bool pActive)
+CANConnection* CanConFactory::create(type pType, QString pPortName, QString pDriverName, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly, bool pActive, int pSamplePoint)
 {
     switch(pType) {
     case SERIALBUS:
@@ -35,6 +38,17 @@ CANConnection* CanConFactory::create(type pType, QString pPortName, QString pDri
         return new CanLogServer(pPortName);
     case PICOFLEXRAY:
         return new PicoFlexRay(pPortName);
+#ifdef GS_USB_DRIVER_ENABLED
+    case GSUSB:
+        {
+            GSUSBDevice* device = new GSUSBDevice(pPortName, pBusSpeed, pSamplePoint);
+            if (!device->isDeviceConnected()) {
+                delete device;
+                return nullptr;
+            }
+            return device;
+        }
+#endif
     default: {}
     }
 

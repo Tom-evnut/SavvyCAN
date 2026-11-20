@@ -13,6 +13,7 @@
 #include <QUdpSocket>
 #include "canconnectionmodel.h"
 #include "connections/canconnection.h"
+#include "connections/gs_usb_driver/gs_usb_definitions.h" //candle_handle (platform-neutral void*)
 
 
 class CANConnectionModel;
@@ -68,8 +69,9 @@ private:
     QUdpSocket *rxBroadcastKayak;
     QVector<QString> remoteDeviceIPGVRET;
     QVector<QString> remoteDeviceKayak;
+    QVector<candle_handle> remoteDeviceGSUSB;
 
-    CANConnection* create(CANCon::type pTye, QString pPortName, QString pDriver, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly = false, bool pActive = true);
+    CANConnection* create(CANCon::type pTye, QString pPortName, QString pDriver, int pSerialSpeed, int pBusSpeed, bool pCanFd, int pDataRate, bool pListenOnly = false, bool pActive = true, int pSamplePoint = -1);
     void populateBusDetails(int offset);
     void loadConnections();
     void saveConnections();
