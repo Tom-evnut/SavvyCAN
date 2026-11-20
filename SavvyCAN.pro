@@ -308,6 +308,24 @@ win32-g++ {
    LIBS += libopengl32
 }
 
+# gs_usb (candleLight) backend — Windows only. Ports collin80/SavvyCAN#835 by BennyEvans.
+# The LGPLv3 candle_api WinUSB driver source (libs/candle_api/src, LICENSE + README in
+# libs/candle_api/) is compiled in here; it depends only on Windows SDK libs. GPLv3 + LGPL
+# is license-compatible. NOTE: the CMake build (used by CI) instead builds candle_api as a
+# separate dynamically-linked DLL — see CMakeLists.txt.
+win32 {
+   DEFINES += GS_USB_DRIVER_ENABLED CANDLE_API_LIBRARY UNICODE NTDDI_VERSION=NTDDI_VISTA _WIN32_WINNT=_WIN32_WINNT_VISTA
+   SOURCES += connections/gs_usb_driver/gs_usb.cpp \
+              connections/gs_usb_driver/gs_usb_reader.cpp \
+              libs/candle_api/src/candle.c \
+              libs/candle_api/src/candle_ctrl_req.c
+   HEADERS += connections/gs_usb_driver/gs_usb.h \
+              connections/gs_usb_driver/gs_usb_reader.h \
+              connections/gs_usb_driver/gs_usb_definitions.h \
+              connections/gs_usb_driver/gs_usb_functions.h
+   LIBS += -lSetupApi -lwinusb -lOle32
+}
+
 unix {
    isEmpty(PREFIX) {
       PREFIX=/usr/local

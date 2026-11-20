@@ -10,12 +10,16 @@
 #include "ui_newconnectiondialog.h"
 #include "picoflexray.h"
 #include "connections/devicescanner.h"
+#ifdef GS_USB_DRIVER_ENABLED
+#include "connections/gs_usb_driver/gs_usb.h"
+#endif
 
-NewConnectionDialog::NewConnectionDialog(QVector<QString>* gvretips, QVector<QString>* kayakhosts, QWidget *parent) :
+NewConnectionDialog::NewConnectionDialog(QVector<QString>* gvretips, QVector<QString>* kayakhosts, QVector<candle_handle>* gsusbIDs, QWidget *parent) :
     QDialog(parent),
     ui(new Ui::NewConnectionDialog),
     remoteDeviceIPGVRET(gvretips),
-    remoteBusKayak(kayakhosts)
+    remoteBusKayak(kayakhosts),
+    remoteDeviceGSUSB(gsusbIDs)
 {
     ui->setupUi(this);
     if (isSerialBusAvailable())
@@ -45,8 +49,14 @@ NewConnectionDialog::NewConnectionDialog(QVector<QString>* gvretips, QVector<QSt
         ui->rbPicoFlexRay->setEnabled(false);
         ui->rbPicoFlexRay->setToolTip(tr("This SavvyCAN was built without libusb"));
     }
+#ifdef GS_USB_DRIVER_ENABLED
+    connect(ui->rbGSUSB, &QAbstractButton::clicked, this, &NewConnectionDialog::handleConnTypeChanged);
+#else
+    ui->rbGSUSB->setVisible(false); //gs_usb backend not compiled in (non-Windows build)
+#endif
 
     connect(ui->cbDeviceType, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewConnectionDialog::handleDeviceTypeChanged);
+    connect(ui->cbPort, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &NewConnectionDialog::handlePortChanged);
     connect(ui->btnOK, &QPushButton::clicked, this, &NewConnectionDialog::handleCreateButton);
 
     ui->lblDeviceType->setHidden(true);
@@ -243,6 +253,7 @@ void NewConnectionDialog::handleConnTypeChanged()
     if (ui->rbCANserver->isChecked()) selectCANserver();
     if (ui->rbCanlogserver->isChecked()) selectCANlogserver();
     if (ui->rbPicoFlexRay->isChecked()) selectPicoFlexRay();
+    if (ui->rbGSUSB->isChecked()) selectGSUSB();
 }
 
 void NewConnectionDialog::handleDeviceTypeChanged()
@@ -447,6 +458,52 @@ void NewConnectionDialog::selectPicoFlexRay()
     ui->cbPort->addItems(PicoFlexRay::availableDevices());
 }
 
+//gs_usb (candleLight) devices: the bitrate list is per-device (read from the device's supported bit
+//timings), so cbPort drives cbCANSpeed via handlePortChanged(). Ported from collin80/SavvyCAN#835.
+void NewConnectionDialog::selectGSUSB()
+{
+    ui->lPort->setText("Port:");
+    ui->lblDeviceType->setHidden(true);
+    ui->cbDeviceType->setHidden(true);
+    ui->cbCANSpeed->setHidden(false);
+    ui->cbSerialSpeed->setHidden(true);
+    ui->lblCANSpeed->setHidden(false);
+    ui->lblSerialSpeed->setHidden(true);
+    ui->cbCanFd->setHidden(true);
+    ui->cbDataRate->setHidden(true);
+    ui->lblDataRate->setHidden(true);
+
+    ui->cbCANSpeed->clear();
+    ui->cbPort->clear();
+#ifdef GS_USB_DRIVER_ENABLED
+    if (remoteDeviceGSUSB) {
+        foreach(candle_handle handle, *remoteDeviceGSUSB) {
+            ui->cbPort->addItem(GSUSBDevice::handleToDeviceIDString(handle));
+        }
+    }
+    handlePortChanged(); //fill cbCANSpeed for the first device
+#endif
+}
+
+//When a gs_usb device is picked, repopulate the CAN-speed list from that device's supported timings.
+void NewConnectionDialog::handlePortChanged()
+{
+#ifdef GS_USB_DRIVER_ENABLED
+    if (ui->rbGSUSB->isChecked() && remoteDeviceGSUSB) {
+        ui->cbCANSpeed->clear();
+        int currentIndex = ui->cbPort->currentIndex();
+        if ((currentIndex >= 0) && (currentIndex < remoteDeviceGSUSB->length())) {
+            QList<GSUSB_timing_t> supportedTiming;
+            candle_handle handle = remoteDeviceGSUSB->at(currentIndex);
+            GSUSBDevice::getSupportedTimings(handle, supportedTiming);
+            foreach (const GSUSB_timing_t timing, supportedTiming) {
+                ui->cbCANSpeed->addItem(GSUSBDevice::timingToString(timing));
+            }
+        }
+    }
+#endif
+}
+
 void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QString pDriver)
 {
 
@@ -478,6 +535,9 @@ void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QSt
           break;
         case CANCon::PICOFLEXRAY:
           ui->rbPicoFlexRay->setChecked(true);
+          break;
+        case CANCon::GSUSB:
+          ui->rbGSUSB->setChecked(true);
           break;
         default: {}
     }
@@ -525,6 +585,7 @@ void NewConnectionDialog::setPortName(CANCon::type pType, QString pPortName, QSt
         case CANCon::CANSERVER:
         case CANCon::CANLOGSERVER:
         case CANCon::PICOFLEXRAY:
+        case CANCon::GSUSB:
         {
             ui->cbPort->setCurrentText(pPortName);
             break;
@@ -547,6 +608,7 @@ QString NewConnectionDialog::getPortName()
     case CANCon::CANSERVER:
     case CANCon::CANLOGSERVER:
     case CANCon::PICOFLEXRAY:
+    case CANCon::GSUSB:
         return ui->cbPort->currentText();
 
     default:
@@ -612,7 +674,44 @@ int NewConnectionDialog::getBusSpeed()
     {
         return ui->cbCANSpeed->currentText().toInt();
     }
+#ifdef GS_USB_DRIVER_ENABLED
+    else if (getConnectionType() == CANCon::GSUSB && remoteDeviceGSUSB)
+    {
+        QList<GSUSB_timing_t> supportedTiming;
+        int currentDeviceIndex = ui->cbPort->currentIndex();
+        int currentSpeedIndex = ui->cbCANSpeed->currentIndex();
+        if ((currentDeviceIndex >= 0) && (currentDeviceIndex < remoteDeviceGSUSB->length()) && (currentSpeedIndex >= 0)) {
+            candle_handle handle = remoteDeviceGSUSB->at(currentDeviceIndex);
+            GSUSBDevice::getSupportedTimings(handle, supportedTiming);
+            if (supportedTiming.length() > currentSpeedIndex) {
+                return (int) supportedTiming.at(currentSpeedIndex).bitrate;
+            }
+        }
+        return 0;
+    }
+#endif
     else return 0;
+}
+
+//gs_usb: the sample point that goes with the chosen bitrate (per-mille). Other backends: -1 (unset).
+int NewConnectionDialog::getSamplePoint()
+{
+#ifdef GS_USB_DRIVER_ENABLED
+    if (getConnectionType() == CANCon::GSUSB && remoteDeviceGSUSB)
+    {
+        QList<GSUSB_timing_t> supportedTiming;
+        int currentDeviceIndex = ui->cbPort->currentIndex();
+        int currentSpeedIndex = ui->cbCANSpeed->currentIndex();
+        if ((currentDeviceIndex >= 0) && (currentDeviceIndex < remoteDeviceGSUSB->length()) && (currentSpeedIndex >= 0)) {
+            candle_handle handle = remoteDeviceGSUSB->at(currentDeviceIndex);
+            GSUSBDevice::getSupportedTimings(handle, supportedTiming);
+            if (supportedTiming.length() > currentSpeedIndex) {
+                return (int) supportedTiming.at(currentSpeedIndex).samplePoint;
+            }
+        }
+    }
+#endif
+    return -1;
 }
 
 CANCon::type NewConnectionDialog::getConnectionType()
@@ -626,6 +725,7 @@ CANCon::type NewConnectionDialog::getConnectionType()
     if (ui->rbCANserver->isChecked()) return CANCon::CANSERVER;
     if (ui->rbCanlogserver->isChecked()) return CANCon::CANLOGSERVER;
     if (ui->rbPicoFlexRay->isChecked()) return CANCon::PICOFLEXRAY;
+    if (ui->rbGSUSB->isChecked()) return CANCon::GSUSB;
     qDebug() << "getConnectionType: error";
 
     return CANCon::NONE;

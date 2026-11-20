@@ -92,6 +92,13 @@
         </property>
        </widget>
       </item>
+      <item row="9" column="0">
+       <widget class="QRadioButton" name="rbGSUSB">
+        <property name="text">
+         <string>gs_usb (candleLight: CANable, CANtact, …)</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>

@@ -29,6 +29,10 @@ void CANBus::setSpeed(int newSpeed){
     speed = newSpeed;
 }
 
+void CANBus::setSamplePoint(int newSamplePoint){
+    samplePoint = newSamplePoint;
+}
+
 void CANBus::setListenOnly(bool mode){
     //qDebug() << "CANBUS SetListenOnly = " << mode;
     listenOnly = mode;
@@ -51,6 +55,10 @@ void CANBus::setCanFD(bool mode){
 
 int CANBus::getSpeed() const {
     return speed;
+}
+
+int CANBus::getSamplePoint() const {
+    return samplePoint;
 }
 
 int CANBus::getDataRate() const {
