@@ -424,7 +424,19 @@ void GSUSBDevice::getSupportedTimings(candle_handle handle, QList<GSUSB_timing_t
         {80000000, 300000, 875, 7, 0, 32, 5, 5},
         {80000000, 500000, 875, 4, 0, 34, 5, 5},
         {80000000, 800000, 875, 2, 0, 43, 6, 6},
-        {80000000, 1000000, 875, 2, 0, 34, 5, 5}
+        {80000000, 1000000, 875, 2, 0, 34, 5, 5},
+
+        // CANable 2.0 and other STM32G431-based devices running candleLight_fw with a 170MHz
+        // FDCAN kernel clock. Every rate uses 170 time quanta (sync 1 + tseg1 148 + tseg2 21),
+        // sample point 149/170 = 87.6%; prescaler = 1e6 / bitrate. tseg1/tseg2 are within the
+        // ranges this fw reports (tseg1 2..256, tseg2 2..128).
+        {170000000, 20000, 876, 50, 0, 148, 21, 16},
+        {170000000, 50000, 876, 20, 0, 148, 21, 16},
+        {170000000, 100000, 876, 10, 0, 148, 21, 16},
+        {170000000, 125000, 876, 8, 0, 148, 21, 16},
+        {170000000, 250000, 876, 4, 0, 148, 21, 16},
+        {170000000, 500000, 876, 2, 0, 148, 21, 16},
+        {170000000, 1000000, 876, 1, 0, 148, 21, 16}
     };
 
     candle_capability_t capability;
