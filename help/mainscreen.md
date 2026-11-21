@@ -14,12 +14,15 @@ The main frame list takes up the majority of the main screen. This list consists
 
 - Timestamp: The timestamp is either in microseconds or seconds. This is a setting in preferences. Either way, the timestamp can have microsecond resolution. The difference is just whether there is a decimal point or not. Many of the CAN capture devices have the ability to maintain full microsecond resolution for timestamping purposes. There is a third timing mode where the timestamp can be customized and is based upon the actual "clock" time.
 - ID: The ID is specified either in hexadecimal or decimal (a preference you can set). This is the message identifier sent over the CAN bus.
-- RTR: 0 = Standard Message 1 = Remote transmit request. An RTR frame merely asks a node to send a message, it has no payload of its own.
+- Type: A short code for the frame type. **C** = classic CAN data frame. **D** = CAN FD data frame; a **B** is appended if the frame used bit rate switching for a faster data phase (so "DB"), and an **E** if the sender was error-passive. **F** = FlexRay data frame; an **N** is appended for a null frame (no valid data) and a **!** if the capture device flagged a payload CRC error. **L** = LIN data frame. **R** = remote-request frame (RTR). **E** = error frame. **I** = invalid frame. An **X** is appended for an extended (29-bit) ID, e.g. "CX" or "DBX". Classic CAN from any adapter — including gs_usb / candleLight devices (CANable, CANtact, etc.) — shows **C**; CAN FD shows **D**.
+- RTR: 0 = Standard Message 1 = Remote transmit request. An RTR frame merely asks a node to send a message, it has no payload of its own. (This is also reflected as **R** in the Type column.)
 - Ext: 0 = Standard message (11 bit ID). 1 = Extended message (29 bit ID)
 - Dir: Either "Rx" or "Tx" to show whether SavvyCAN has received or sent this message.
 - Bus: SavvyCAN supports a variety of capture hardware. GVRET compatible devices can support more than one bus. The bus a frame came in on
   is specified here. Many file formats do not specify bus and thus all frames will be loaded as bus 0.
+- Cnt: In "Overwrite Mode" (see below), how many frames with this ID have been seen so far; the list keeps only the newest one per ID. Otherwise it stays 1.
 - Len: The number of data bytes that were sent with this frame. It can range from 0 to 8 for standard CAN and 0 to 64 for CAN-FD.
+- Slot / Cycle: Used by FlexRay captures (for example pico-flexray). Slot is the FlexRay slot ID and Cycle is the communication cycle (0-63). Both are blank for non-FlexRay frames. See [Adding a new connection](newconnection.md) for details.
 - ASCII: A character based view of the CAN bytes in ASCII characters. Many systems that send serial numbers or VIN numbers will send them in ASCII and these will thus be visible here.
 - Data: All of the data bytes separated by spaces. Can be in either hexadecimal or decimal (preference). If "Interpret Frames" is checked you will
   also see extra data at the end of any frames that have DBC data. To see the rest of this data click upon the frame in the list. It will automatically expand to show all signals attached to that frame.
