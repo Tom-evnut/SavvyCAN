@@ -14,7 +14,8 @@ CANConnection::CANConnection(QString pPort,
                              int pQueueLen,
                              bool pUseThread,
                              bool pListenOnly,
-                             bool pActive) :
+                             bool pActive,
+                             int pSamplePoint) :
     mNumBuses(pNumBuses),
     mSerialSpeed(pSerialSpeed),
     mQueue(),
@@ -43,6 +44,7 @@ CANConnection::CANConnection(QString pPort,
     }
 
     if (pBusSpeed > 0) mBusData[0].mBus.setSpeed(pBusSpeed);
+    if ((pSamplePoint >= 0) && (pSamplePoint <= 1000)) mBusData[0].mBus.setSamplePoint(pSamplePoint);
     mBusData[0].mBus.setCanFD(pCanFd);
     if (pDataRate > 0) {
         mBusData[0].mBus.setDataRate(pDataRate);

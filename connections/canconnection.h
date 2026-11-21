@@ -39,7 +39,8 @@ protected:
                   int pQueueLen,
                   bool pUseThread,
                   bool pListenOnly = false,
-                  bool pActive = true);
+                  bool pActive = true,
+                  int pSamplePoint = -1);
 
 public:
 

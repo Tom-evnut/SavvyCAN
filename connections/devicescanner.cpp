@@ -1,5 +1,9 @@
 #include "connections/devicescanner.h"
 #include "connections/picoflexray.h"
+#ifdef GS_USB_DRIVER_ENABLED
+#include "connections/gs_usb_driver/gs_usb.h"
+#include <QRegularExpression>
+#endif
 
 #include <QSerialPortInfo>
 #include <QSerialPort>
@@ -94,6 +98,35 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
         }
     }
 
+#ifdef GS_USB_DRIVER_ENABLED
+    // 1b) gs_usb / candleLight USB devices (CANable, CANtact, CAN Bus Debugger, ...) - unambiguous.
+    {
+        QVector<candle_handle> gsHandles;
+        GSUSBDevice::getConnectedDevices(gsHandles);
+        const QRegularExpression re(QStringLiteral("VID_([0-9A-Fa-f]{4})&PID_([0-9A-Fa-f]{4})"));
+        int idx = 0;
+        for (candle_handle h : gsHandles) {
+            DetectedDevice d;
+            const QString path = GSUSBDevice::handleToDeviceIDString(h);
+            const QRegularExpressionMatch m = re.match(path);
+            const QString tag = m.hasMatch()
+                ? QStringLiteral("%1:%2").arg(m.captured(1).toUpper(), m.captured(2).toUpper())
+                : QString();
+            d.displayName = tag.isEmpty() ? QStringLiteral("gs_usb (candleLight)")
+                                          : QStringLiteral("gs_usb (candleLight) %1").arg(tag);
+            if (gsHandles.size() > 1) d.displayName += QStringLiteral(" #%1").arg(idx);
+            d.location = tag.isEmpty() ? QStringLiteral("USB") : tag;
+            d.detail = QStringLiteral("candleLight / gs_usb device (USB)");
+            d.type = CANCon::GSUSB;
+            d.portArg = path;      //the device path candle matches on
+            d.labelKey = path;
+            d.confidence = DetectedDevice::Certain;
+            out.append(d);
+            idx++;
+        }
+    }
+#endif
+
     // 2) QtSerialBus hardware, per installed plugin - the plugin names the device.
     // Skip plugins/devices that are virtual or mere driver placeholders (they aren't attached
     // hardware and otherwise flood the list): the virtualcan plugin, and any device the plugin
@@ -176,11 +209,12 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
         switch (d.type) {
         case CANCon::PICOFLEXRAY: return 0; // USB (FlexRay)
         case CANCon::GVRET_SERIAL:
-        case CANCon::LAWICEL:     return 0; // USB-serial adapters
-        case CANCon::SERIALBUS:   return 1; // driver-mediated hardware / plugins
+        case CANCon::LAWICEL:     return 1; // USB-serial adapters (GVRET etc.)
+        case CANCon::GSUSB:       return 2; // gs_usb / candleLight USB, listed under the GVRET adapters
+        case CANCon::SERIALBUS:   return 3; // driver-mediated hardware / plugins
         case CANCon::REMOTE:
-        case CANCon::KAYAK:       return 2; // network (broadcast-discovered)
-        default:                  return 3;
+        case CANCon::KAYAK:       return 4; // network (broadcast-discovered)
+        default:                  return 5;
         }
     };
     std::stable_sort(out.begin(), out.end(), [&rankOf](const DetectedDevice &a, const DetectedDevice &b){

@@ -25,6 +25,7 @@ namespace CANCon {
         CANSERVER,
         CANLOGSERVER,
         PICOFLEXRAY,
+        GSUSB,
         NONE
     };
 }

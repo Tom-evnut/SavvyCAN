@@ -58,6 +58,16 @@ Timestamps: with firmware that supports record format 2 (see the pico-flexray RE
 
 FlexRay frames are saved in SavvyCAN's native CSV format with "FR" in the flags column after the data. The Frame Info window's per-byte statistics cover the first 8 bytes and Flow View shows the first 64 bytes of longer frames.
 
+Connecting to gs_usb (candleLight) devices
+==========================================
+
+On Windows, SavvyCAN can connect to **gs_usb / candleLight** devices — CANable, CANtact, CAN Bus Debugger and similar — over their native USB protocol (no serial/slcan layer). They are detected automatically (they appear in the "Detected devices" list), or you can pick "gs_usb (candleLight: CANable, CANtact, ...)" under Manual setup. The Port list shows the connected gs_usb devices and the CAN speed list is read from each device's own supported bit-timings (e.g. "500000 (SP: 87.6%)").
+
+- **Windows only:** the backend links the LGPL `candle_api.dll`, which is shipped next to `SavvyCAN.exe`. The gs_usb option is hidden on other platforms (on Linux, gs_usb is a SocketCAN kernel driver — use "QT SerialBus Devices" there).
+- **Driver:** the device must present the **gs_usb WinUSB interface** (GUID `c15b4308-04d3-11e6-b3ea-6057189e6443`). candleLight firmware installs this automatically. If the device was previously set up with a *generic* WinUSB driver (e.g. via Zadig) it won't be found — reinstall so Windows binds the gs_usb interface, or add that interface GUID to the device.
+- **Speed:** the bit rate is chosen from the device's supported timings at connect time and can be changed later in the connection window's bus settings.
+- Received frames show "C" (classic CAN) in the Type column. Firmware that only advertises classic CAN will reject outgoing frames longer than 8 bytes.
+
 Connecting to Socketcand
 ========================
 

@@ -9,6 +9,7 @@
 #include "canconnectionmodel.h"
 #include "connections/canconnection.h"
 #include "connections/devicescanner.h"
+#include "connections/gs_usb_driver/gs_usb_definitions.h" //candle_handle (platform-neutral void*)
 
 namespace Ui {
 class NewConnectionDialog;
@@ -23,7 +24,7 @@ class NewConnectionDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit NewConnectionDialog(QVector<QString>* gvretips, QVector<QString>* kayakips, QWidget *parent = nullptr);
+    explicit NewConnectionDialog(QVector<QString>* gvretips, QVector<QString>* kayakips, QVector<candle_handle>* gsusbIDs = nullptr, QWidget *parent = nullptr);
     ~NewConnectionDialog();
 
     CANCon::type getConnectionType();
@@ -31,12 +32,14 @@ public:
     QString getDriverName();
     int getSerialSpeed();
     int getBusSpeed();
+    int getSamplePoint();
     bool isCanFd();
     int getDataRate();
 
 public slots:
     void handleConnTypeChanged();
     void handleDeviceTypeChanged();
+    void handlePortChanged();
     void handleCreateButton();
 
 private:
@@ -45,6 +48,7 @@ private:
     QList<QCanBusDeviceInfo> canDevices;
     QVector<QString>* remoteDeviceIPGVRET;
     QVector<QString>* remoteBusKayak;
+    QVector<candle_handle>* remoteDeviceGSUSB = nullptr;
 
     //Device auto-detect: the detected list is the primary way to connect; manual setup stays
     //available in a collapsible section below it.
@@ -70,6 +74,7 @@ private:
     void selectCANserver();
     void selectPicoFlexRay();
     void selectCANlogserver();
+    void selectGSUSB();
     bool isSerialBusAvailable();
     void setPortName(CANCon::type pType, QString pPortName, QString pDriver);
     void fillBusSpeedLists();

@@ -75,6 +75,7 @@ jobs:
         run: |
           mkdir package
           copy "build/release/SavvyCAN.exe" package/
+          copy "build/release/candle_api.dll" package/
           mkdir package/help
           copy  translations/*.qm package/translations/
           copy  help/*.md package/help/
