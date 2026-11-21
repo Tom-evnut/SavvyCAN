@@ -209,11 +209,12 @@ QList<DetectedDevice> DeviceScanner::scan(const QVector<QString> &gvretIps,
         switch (d.type) {
         case CANCon::PICOFLEXRAY: return 0; // USB (FlexRay)
         case CANCon::GVRET_SERIAL:
-        case CANCon::LAWICEL:     return 0; // USB-serial adapters
-        case CANCon::SERIALBUS:   return 1; // driver-mediated hardware / plugins
+        case CANCon::LAWICEL:     return 1; // USB-serial adapters (GVRET etc.)
+        case CANCon::GSUSB:       return 2; // gs_usb / candleLight USB, listed under the GVRET adapters
+        case CANCon::SERIALBUS:   return 3; // driver-mediated hardware / plugins
         case CANCon::REMOTE:
-        case CANCon::KAYAK:       return 2; // network (broadcast-discovered)
-        default:                  return 3;
+        case CANCon::KAYAK:       return 4; // network (broadcast-discovered)
+        default:                  return 5;
         }
     };
     std::stable_sort(out.begin(), out.end(), [&rankOf](const DetectedDevice &a, const DetectedDevice &b){
