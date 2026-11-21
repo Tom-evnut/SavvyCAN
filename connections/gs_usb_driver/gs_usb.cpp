@@ -56,6 +56,8 @@ GSUSBDevice::GSUSBDevice(QString portName, int busSpeed, int samplePoint) :
     uint8_t num_interfaces;
     candle_handle dev;
 
+    qRegisterMetaType<candle_frame_t>("candle_frame_t"); //needed to queue frames across threads
+
     sendDebug("GSUSBDevice()");
 
     if (candle_list_scan(&clist)) {
@@ -135,9 +137,13 @@ void GSUSBDevice::piStarted()
         // Create new reader
         this->reader = new GSUSBReader(NULL, this->deviceHandle);
 
-        // TODO: Maybe this could just be QueuedConnection? If speed up required, check this!
-        bool result = connect(this->reader, SIGNAL(newFrame(candle_frame_t)), this, SLOT(readFrame(candle_frame_t)), Qt::BlockingQueuedConnection);
+        // QueuedConnection (not BlockingQueued): a blocking emit here deadlocks when the bus is
+        // reconfigured live (piStop() waits on the reader thread while that thread is blocked
+        // trying to deliver a frame to this thread). The worker thread runs an event loop, so a
+        // plain queued delivery is fine at CAN rates.
+        bool result = connect(this->reader, SIGNAL(newFrame(candle_frame_t)), this, SLOT(readFrame(candle_frame_t)), Qt::QueuedConnection);
         Q_ASSERT(result);
+        Q_UNUSED(result);
 
         // TODO: In the future, add one shot support etc.
         if (mBusData[GS_USB_BUS_CHANNEL_ID].mBus.isListenOnly() && (capability.feature & CANDLE_MODE_LISTEN_ONLY)) {

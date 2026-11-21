@@ -29,6 +29,11 @@
 #include "gs_usb_definitions.h"
 #include <QObject>
 #include <QThread>
+#include <QMetaType>
+
+// candle_frame_t crosses the reader thread -> device thread via a queued signal/slot,
+// so it must be a registered metatype (also qRegisterMetaType'd in GSUSBDevice's ctor).
+Q_DECLARE_METATYPE(candle_frame_t)
 
 class GSUSBReader : public QObject
 {
